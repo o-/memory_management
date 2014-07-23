@@ -4,13 +4,12 @@
 
 int main(){
   alignedMemoryManagerInit();
-  int chunkAlignment = memoryChunkAlignment();
 
   printf("chunksize is %dk\n", chunkAlignment/1024);
 
   int start      = chunkAlignment - 100;
   int step       = 6987;
-  int end        = 2*chunkAlignment;
+  int end        = 4*chunkAlignment;
   int num_chunks = (end-start) / step;
 
   MemoryChunkHeader * chunks[num_chunks];

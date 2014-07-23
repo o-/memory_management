@@ -47,6 +47,29 @@ uintptr_t nextAlignedAddress(uintptr_t base) {
   return (base+chunkAlignment) & ~chunkAlignMask;
 }
 
+#ifdef USE_POSIX_MEMALIGN
+MemoryChunkHeader * allocateAligned(size_t usable_length) {
+  // Space requirements with header
+  size_t full_length    = totalChunkSize(usable_length);
+
+  void * base = NULL;
+  posix_memalign(&base, chunkAlignment, full_length);
+
+  if (base == NULL) return NULL;
+
+  MemoryChunkHeader * chunk = (MemoryChunkHeader*) base;
+
+  chunk->length   = usable_length;
+
+  return chunk;
+}
+
+void freeChunk(MemoryChunkHeader * chunk) {
+  free(chunk);
+}
+
+#else
+
 MemoryChunkHeader * allocateAligned(size_t min_usable_length) {
   // Space requirements with header
   size_t full_length    = totalChunkSize(min_usable_length);
@@ -113,10 +136,11 @@ MemoryChunkHeader * allocateAligned(size_t min_usable_length) {
   return chunk;
 }
 
-MemoryChunkHeader * allocateAlignedChunk() {
-  return allocateAligned(usableChunkSize(chunkAlignment));
-}
-
 void freeChunk(MemoryChunkHeader * chunk) {
   munmap(chunk, chunk->raw_size);
+}
+#endif
+
+MemoryChunkHeader * allocateAlignedChunk() {
+  return allocateAligned(usableChunkSize(chunkAlignment));
 }
