@@ -2,12 +2,17 @@
 #define H_ALIGNED_MEMORY
 
 #include <stdlib.h>
+#include <stdint.h>
 
 #define assert(t) \
   if (!(t)) { \
     printf("assertion '%s' failed: %s:%d\n", #t, __FILE__, __LINE__); \
     __asm("int3"); \
   }
+
+extern const int chunkAlignment;
+extern const int chunkAlignBits;
+extern const int chunkAlignMask;
 
 void alignedMemoryManagerInit();
 
@@ -18,18 +23,21 @@ struct MemoryChunkHeader {
   unsigned int raw_size;
 };
 
-int memoryChunkAlignment();
+inline int isAligned(void * base, unsigned int align) {
+  return (uintptr_t)base % align == 0;
+}
 
-int isAligned(void * base, unsigned int align);
+inline int isMaskable(void * ptr, MemoryChunkHeader * chunk) {
+  return (uintptr_t)ptr < (uintptr_t)chunk+chunkAlignment;
+}
 
-int isMaskable(void * ptr, MemoryChunkHeader * chunk);
+inline MemoryChunkHeader * chunkFromPtr(void * base) {
+  return (MemoryChunkHeader*)((uintptr_t)base & ~chunkAlignMask);
+}
 
 void * chunkData(MemoryChunkHeader * base);
 
-MemoryChunkHeader * chunkFromPtr(void * base);
-
 MemoryChunkHeader * allocateAligned(size_t min_usable_length);
-
 MemoryChunkHeader * allocateAlignedChunk();
 
 void freeChunk(MemoryChunkHeader * chunk);

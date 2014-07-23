@@ -6,36 +6,21 @@
 #include <math.h>
 #include <stdint.h>
 
-
 #include <sys/mman.h>
 
 static int OSPageAlignment;
 
-static int chunkAlignment;
-static int chunkAlignBits;
-static int chunkAlignMask;
-
+#define _CHUNK_ALIGN_BITS 20
+const int chunkAlignment = 1<<_CHUNK_ALIGN_BITS;
+const int chunkAlignBits = _CHUNK_ALIGN_BITS;
+const int chunkAlignMask = (1<<_CHUNK_ALIGN_BITS)-1;
 
 size_t roundUpMemory(size_t required, unsigned int align);
 
 void alignedMemoryManagerInit() {
   OSPageAlignment = sysconf(_SC_PAGESIZE);
-  chunkAlignment  = OSPageAlignment<<8;
-  chunkAlignBits  = log2(chunkAlignment);
-  chunkAlignMask  = chunkAlignment-1;
   assert(1<<chunkAlignBits == chunkAlignment);
-}
-
-int memoryChunkAlignment() {
-  return chunkAlignment;
-}
-
-int isAligned(void * base, unsigned int align) {
-  return (uintptr_t)base % align == 0;
-}
-
-int isMaskable(void * ptr, MemoryChunkHeader * chunk) {
-  return (uintptr_t)ptr < (uintptr_t)chunk+chunkAlignment;
+  assert(chunkAlignment % OSPageAlignment == 0);
 }
 
 void * chunkData(MemoryChunkHeader * base) {
@@ -55,10 +40,6 @@ size_t totalChunkSize(size_t length) {
 size_t roundUpMemory(size_t required, unsigned int align) {
   int diff = (required + align) % align;
   return required + align - diff;
-}
-
-MemoryChunkHeader * chunkFromPtr(void * base) {
-  return (MemoryChunkHeader*)((uintptr_t)base & ~chunkAlignMask);
 }
 
 uintptr_t nextAlignedAddress(uintptr_t base) {
