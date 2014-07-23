@@ -1,0 +1,2 @@
+#!/bin/bash
+gcc -lm -std=gnu99 -O2 -Wall -g -o bin/t test.c arena.c  && time ./bin/t
