@@ -1,0 +1,2 @@
+#!/bin/sh
+gcc -lm -std=gnu99 -Wall -g -o align test.c align.c  && ./align
