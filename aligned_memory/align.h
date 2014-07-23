@@ -18,7 +18,6 @@ void alignedMemoryManagerInit();
 
 typedef struct MemoryChunkHeader MemoryChunkHeader;
 struct MemoryChunkHeader {
-  MemoryChunkHeader * next;
   unsigned int length;
   unsigned int raw_size;
 };
