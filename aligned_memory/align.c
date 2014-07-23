@@ -17,6 +17,10 @@ const int chunkAlignMask = (1<<_CHUNK_ALIGN_BITS)-1;
 
 size_t roundUpMemory(size_t required, unsigned int align);
 
+extern inline int isAligned(void * base, unsigned int align);
+extern inline int isMaskable(void * ptr, MemoryChunkHeader * chunk);
+extern inline MemoryChunkHeader * chunkFromPtr(void * base);
+
 void alignedMemoryManagerInit() {
   OSPageAlignment = sysconf(_SC_PAGESIZE);
   assert(1<<chunkAlignBits == chunkAlignment);
@@ -48,6 +52,7 @@ uintptr_t nextAlignedAddress(uintptr_t base) {
 }
 
 #ifdef USE_POSIX_MEMALIGN
+
 MemoryChunkHeader * allocateAligned(size_t usable_length) {
   // Space requirements with header
   size_t full_length    = totalChunkSize(usable_length);
@@ -139,6 +144,7 @@ MemoryChunkHeader * allocateAligned(size_t min_usable_length) {
 void freeChunk(MemoryChunkHeader * chunk) {
   munmap(chunk, chunk->raw_size);
 }
+
 #endif
 
 MemoryChunkHeader * allocateAlignedChunk() {
