@@ -43,6 +43,7 @@ struct ArenaHeader {
   size_t        object_size;
   unsigned char object_bits;
   unsigned int  num_objects;
+  unsigned int  num_alloc;
   size_t        bytemap_size;
   unsigned int  arena_size;
   void *        first;
@@ -50,10 +51,18 @@ struct ArenaHeader {
   FreeObject *  free_list;
 };
 
+inline ObjectHeader ** getSlots(ObjectHeader * o) {
+  return (ObjectHeader**)(o+1);
+}
+
 ObjectHeader * alloc(size_t length);
 
 int getNumberOfMarkBits(ArenaHeader * arena);
 void inspectArena(ArenaHeader * arena);
+void printMemoryStatistics();
+
+void gcMark(ObjectHeader * root);
+void gcSweep();
 
 void initGc();
 void teardownGc();
