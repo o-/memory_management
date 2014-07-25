@@ -34,6 +34,8 @@ extern const int arenaAlignment;
 extern const int arenaAlignBits;
 extern const int arenaAlignMask;
 
+static ObjectHeader * Nil;
+
 typedef struct FreeObject FreeObject;
 struct FreeObject {
   FreeObject * next;
@@ -42,12 +44,8 @@ struct FreeObject {
 typedef struct ArenaHeader ArenaHeader;
 struct ArenaHeader {
   ArenaHeader * next;
-  size_t        object_size;
-  unsigned char object_bits;
-  unsigned int  num_objects;
+  unsigned char segment;
   unsigned int  num_alloc;
-  size_t        bytemap_size;
-  unsigned int  arena_size;
   void *        first;
   void *        free;
   FreeObject *  free_list;

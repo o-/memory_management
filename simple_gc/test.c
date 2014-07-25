@@ -3,8 +3,6 @@
 
 #include <stdio.h>
 
-static ObjectHeader * Nil;
-
 static ObjectHeader * SomeReleasedNode;
 
 void releaseSomeNodes(ObjectHeader * o) {
