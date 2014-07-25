@@ -5,11 +5,14 @@
 
 static ObjectHeader * Nil;
 
+static ObjectHeader * SomeReleasedNode;
+
 void releaseSomeNodes(ObjectHeader * o) {
   if (o == Nil) return;
   ObjectHeader ** s = getSlots(o);
-  for (int i = 0; i < o->length; i++) {
-    if (rand()%10 == 1) {
+  for (int i = 1; i < o->length; i++) {
+    if (s[i] != Nil && rand()%10 == 1) {
+      SomeReleasedNode = s[i];
       s[i] = Nil;
     } else {
       releaseSomeNodes(s[i]);
@@ -17,30 +20,31 @@ void releaseSomeNodes(ObjectHeader * o) {
   }
 }
 
-ObjectHeader * allocNode(int depth) {
+ObjectHeader * allocTree(int depth, ObjectHeader * parent) {
   if (depth == 0) {
     return Nil;
   }
-  int size          = rand() % 12;
+  int size          = 1 + rand() % 11;
   ObjectHeader *  o = alloc(size);
   ObjectHeader ** s = getSlots(o);
-  for (int i = 0; i < size; i++) {
-    s[i] = allocNode(depth - 1);
+  // Keep a backpointer in slot 0
+  s[0] = parent;
+  for (int i = 1; i < size; i++) {
+    s[i] = allocTree(depth - 1, o);
   }
   return o;
 }
 
-unsigned long countNode(ObjectHeader * root) {
-  if (root == Nil) return 0;
+void verifyTree(ObjectHeader * node, ObjectHeader * parent) {
+  if (node == Nil) return;
 
-  ObjectHeader **   s = getSlots(root);
-  unsigned long count = root->length;
+  ObjectHeader **   s = getSlots(node);
+  // Check the backpointer is still in place
+  assert(s[0] == parent);
 
-  for (int i = 0; i < root->length; i++) {
-    count += countNode(s[i]);
+  for (int i = 1; i < node->length; i++) {
+    verifyTree(s[i], node);
   }
-
-  return count;
 }
 
 unsigned long getDiff(struct timespec a, struct timespec b) {
@@ -61,18 +65,18 @@ int main(){
 
   int rounds = 10;
 
-  ObjectHeader *  root  = alloc(rounds);
+  // rounds+1 to keep one additional slot containing Nil
+  ObjectHeader *  root  = alloc(rounds+1);
   ObjectHeader ** roots = getSlots(root);
-  for (int i = 0; i < rounds; i++) {
+  for (int i = 0; i < rounds+1; i++) {
     roots[i] = Nil;
   }
-
 
   for (int i = 0; i < rounds; i++) {
     static struct timespec a, b, c;
 
     clock_gettime(CLOCK_REALTIME, &a);
-    ObjectHeader * tree = allocNode(10);
+    ObjectHeader * tree = allocTree(10, Nil);
     clock_gettime(CLOCK_REALTIME, &b);
 
     printf("allocation took: %lu ms\n", getDiff(a, b) / 1000000);
@@ -86,6 +90,10 @@ int main(){
     clock_gettime(CLOCK_REALTIME, &b);
     gcSweep();
     clock_gettime(CLOCK_REALTIME, &c);
+
+    // Check if the sample released node was properly collected
+    ObjectHeader ** s = getSlots(SomeReleasedNode);
+    assert(s[0] == GC_ZAP_POINTER);
 
     printf("marking took: %lu ms\n", getDiff(a, b) / 1000000);
     printf("sweeping took: %lu ms\n", getDiff(b, c) / 1000000);

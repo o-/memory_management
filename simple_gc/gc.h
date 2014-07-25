@@ -21,6 +21,8 @@
 #define debug(str, ...) ((void)0)
 #endif
 
+#define GC_ZAP_POINTER ((ObjectHeader*)0xdeadbeef)
+
 typedef struct ObjectHeader ObjectHeader;
 struct ObjectHeader {
   int            some_header_bits : 32;

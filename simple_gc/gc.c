@@ -257,7 +257,7 @@ ObjectHeader * allocFromSegment(int segment) {
       return o;
     }
 
-    // This arena is full
+    // This arena is full. Move to full_arena to not have to search it again
     ArenaHeader * next = arena->next;
 
     ArenaHeader * full = HEAP.full_arena[segment];
@@ -380,6 +380,14 @@ void sweepArena(ArenaHeader * arena) {
     char * mark = getMark(finger);
     assert(*mark != greyMark);
     if (*mark == whiteMark) {
+#ifdef DEBUG
+      // Zap slots
+      ObjectHeader * o  = (ObjectHeader*)finger;
+      ObjectHeader ** s = getSlots(o);
+      for (int i = 0; i < o->length; i++) {
+        s[i] = GC_ZAP_POINTER;
+      }
+#endif
       FreeObject * f = (FreeObject*)finger;
       f->next = arena->free_list;
       arena->free_list = f;
@@ -405,7 +413,7 @@ void gcSweep() {
     while (arena != NULL) {
       sweepArena(arena);
       // Move arenas with empty space to the free_arena list
-      if ((float)arena->num_alloc / (float)arena->num_objects < 0.95) {
+      if ((float)arena->num_alloc / (float)arena->num_objects < 0.98) {
         last_free->next = arena;
         last_free = arena;
         if (prev_full == NULL) {
