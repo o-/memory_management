@@ -25,7 +25,7 @@ ObjectHeader * allocTree(int depth, ObjectHeader * parent, long round) {
   if (depth == 0) {
     return Nil;
   }
-  int length          = 1 + rand() % 11;
+  int length          = 1 + rand() % 125;
   ObjectHeader *  o = alloc(length);
   o->some_header_bits = round;
   ObjectHeader ** s = getSlots(o);
@@ -80,7 +80,7 @@ int main(){
     static struct timespec a, b, c;
 
     clock_gettime(CLOCK_REALTIME, &a);
-    ObjectHeader * tree = allocTree(10, Nil, i);
+    ObjectHeader * tree = allocTree(4, Nil, i);
     clock_gettime(CLOCK_REALTIME, &b);
 
     printf("allocation took: %lu ms\n", getDiff(a, b) / 1000000);
