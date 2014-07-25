@@ -30,7 +30,7 @@ struct ObjectHeader {
   ObjectHeader * attrib;
 };
 
-static ObjectHeader * Nil;
+extern ObjectHeader * Nil;
 
 typedef struct FreeObject FreeObject;
 struct FreeObject {
@@ -41,7 +41,10 @@ typedef struct ArenaHeader ArenaHeader;
 struct ArenaHeader {
   ArenaHeader * next;
   unsigned char segment;
+  unsigned char object_bits;
   unsigned int  num_alloc;
+  size_t        object_size;
+  unsigned int  num_objects;
   void *        first;
   void *        free;
   FreeObject *  free_list;

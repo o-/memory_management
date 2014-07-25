@@ -3,9 +3,6 @@
 
 #include <stdio.h>
 
-extern ObjectHeader * Nil;
-
-
 static ObjectHeader * SomeReleasedNode;
 
 void releaseSomeNodes(ObjectHeader * o) {
@@ -25,14 +22,22 @@ ObjectHeader * allocTree(int depth, ObjectHeader * parent, long round) {
   if (depth == 0) {
     return Nil;
   }
-  int length          = 1 + rand() % 125;
+  int length;
+  if (rand()%100000 == 1) {
+    // Create a large vector once in a while
+    length = 1 + rand() % 10000;
+  } else {
+    length = 1 + rand() % 125;
+  }
   ObjectHeader *  o = alloc(length);
   o->some_header_bits = round;
   ObjectHeader ** s = getSlots(o);
   // Keep a backpointer in slot 0
   s[0] = parent;
   for (int i = 1; i < length; i++) {
-    s[i] = allocTree(depth - 1, o, round);
+    if (rand() % 10 > 7) {
+      s[i] = allocTree(depth - 1, o, round);
+    }
   }
   return o;
 }
@@ -65,14 +70,11 @@ int main(){
 
   srand(90);
 
-  Nil = alloc(0);
-
   int rounds = 10;
 
-  // rounds+1 to keep one additional slot containing Nil
-  ObjectHeader *  root  = alloc(rounds+1);
+  ObjectHeader *  root  = alloc(rounds);
   ObjectHeader ** roots = getSlots(root);
-  for (int i = 0; i < rounds+1; i++) {
+  for (int i = 0; i < rounds; i++) {
     roots[i] = Nil;
   }
 
@@ -80,7 +82,7 @@ int main(){
     static struct timespec a, b, c;
 
     clock_gettime(CLOCK_REALTIME, &a);
-    ObjectHeader * tree = allocTree(4, Nil, i);
+    ObjectHeader * tree = allocTree(6, Nil, i);
     clock_gettime(CLOCK_REALTIME, &b);
 
     printf("allocation took: %lu ms\n", getDiff(a, b) / 1000000);

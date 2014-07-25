@@ -9,8 +9,7 @@
 
 #include <sys/mman.h>
 
-extern ObjectHeader * Nil;
-
+ObjectHeader * Nil;
 
 #define SlotSize sizeof(double)
 #define EmptyObjectSize 32
@@ -30,11 +29,8 @@ static int HeapSegmentSize[FixedHeapSegments] = {EmptyObjectSize,
                                                  EmptyObjectSize<<4,
                                                  EmptyObjectSize<<5};
 
-static int GcLookupNumObject[FixedHeapSegments];
-static int GcLookupObjectSize[FixedHeapSegments];
-static int GcLookupObjectBits[FixedHeapSegments];
-static int GcLookupMaxLength[FixedHeapSegments];
 #define GcLookupSegmentSize ((EmptyObjectSize<<5)/SlotSize)
+static int GcLookupNumObject[FixedHeapSegments];
 static int GcLookupSegment[GcLookupSegmentSize];
 
 static char whiteMark  = 0;
@@ -60,6 +56,7 @@ void * gcSpaceMalloc(size_t size) {
   void * p = GC_SPACE.free;
   GC_SPACE.alloc += size;
   if (GC_SPACE.alloc > GC_SPACE_SIZE) {
+    puts("GC panic: no temp mem available");
     exit(-1);
   }
   GC_SPACE.free += size;
@@ -90,32 +87,28 @@ int objectLengthToSize(int length) {
 }
 
 int getFixedSegment(int length) {
-  if (length > GcLookupSegmentSize) return -1;
+  if (length >= GcLookupSegmentSize) return -1;
   return GcLookupSegment[length];
 }
 
 int getNumObjects(ArenaHeader * arena) {
-  assert(arena->segment >= 0);
-  assert(arena->segment < FixedHeapSegments);
-  return GcLookupNumObject[arena->segment];
+  return arena->num_objects;
 }
 
 int getObjectSize(ArenaHeader * arena) {
-  assert(arena->segment >= 0);
-  assert(arena->segment < FixedHeapSegments);
-  return GcLookupObjectSize[arena->segment];
+  return arena->object_size;
+}
+
+int getObjectSizeFromSegment(int segment) {
+  return HeapSegmentSize[segment];
 }
 
 int getMaxObjectLength(ArenaHeader * arena) {
-  assert(arena->segment >= 0);
-  assert(arena->segment < FixedHeapSegments);
-  return GcLookupMaxLength[arena->segment];
+  return objectSizeToLength(arena->object_size);
 }
 
 int getObjectBits(ArenaHeader * arena) {
-  assert(arena->segment >= 0);
-  assert(arena->segment < FixedHeapSegments);
-  return GcLookupObjectBits[arena->segment];
+  return arena->object_bits;
 }
 
 int getBytemapIndex(void * base, ArenaHeader * arena) {
@@ -173,6 +166,7 @@ size_t calcNumOfObjects(int total_size, int object_size) {
 }
 
 size_t roundUpMemory(size_t required, unsigned int align) {
+  if (required % align == 0) return required;
   int diff = (required + align) % align;
   return required + align - diff;
 }
@@ -182,14 +176,19 @@ uintptr_t nextAlignedAddress(uintptr_t base) {
   return (base+arenaAlignment) & ~arenaAlignMask;
 }
 
-ArenaHeader * allocateAligned(int segment, int variable_length) {
+ArenaHeader * allocateAligned(int variable_length) {
   int OSPageAlignment = sysconf(_SC_PAGESIZE);
+
+  //void * ptr;
+  //posix_memalign(&ptr, arenaAlignment, variable_length);
+  //return ptr;
 
   int aligned_length = roundUpMemory(variable_length, OSPageAlignment);
   // Length aligned to OS page size (required for mmap)
   assert(aligned_length % OSPageAlignment == 0);
   // Virtual memory needed to satisfy chunk alignment
-  size_t request_length = roundUpMemory(2 * aligned_length, OSPageAlignment);
+  size_t request_length = roundUpMemory(aligned_length + arenaAlignment,
+                                        OSPageAlignment);
 
   // Reserve virtual memory
   void * reserved = mmap(NULL,
@@ -230,7 +229,7 @@ ArenaHeader * allocateAligned(int segment, int variable_length) {
                          MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED,
                          -1,
                          0);
-  if (commited == NULL) {
+  if (commited != aligned_base_ptr) {
     munmap(aligned_base_ptr, aligned_length);
     return NULL;
   }
@@ -240,19 +239,24 @@ ArenaHeader * allocateAligned(int segment, int variable_length) {
 }
 
 
-ArenaHeader * allocateAlignedArena(int segment, int variable_length) {
-  ArenaHeader * chunk = allocateAligned(segment, arenaSize);
+ArenaHeader * allocateAlignedArena(int segment) {
+  ArenaHeader * chunk = NULL;
+  assert (segment < FixedHeapSegments);
+
+  chunk = allocateAligned(arenaSize);
 
   chunk->segment           = segment;
-  int num_objects          = (segment == VariableHeapSegment) ?
-                              1 : getNumObjects(chunk);
+  int num_objects          = GcLookupNumObject[segment];
+  chunk->num_objects       = num_objects;
 
-  chunk->first             = (void*) ((uintptr_t)(chunk + 1) + num_objects);
+  chunk->first             = &getBytemap(chunk)[num_objects];
   chunk->free              = chunk->first;
   chunk->free_list         = NULL;
   chunk->num_alloc         = 0;
+  chunk->object_size       = HeapSegmentSize[segment];
+  chunk->object_bits       = log2(HeapSegmentSize[segment]);
 
-  assert((getNumObjects(chunk)+1) * getObjectSize(chunk) +
+  assert((num_objects+1) * chunk->object_size +
          sizeof(ArenaHeader) <= arenaSize);
 
   // Zero bytemap
@@ -266,7 +270,7 @@ void freeArena(ArenaHeader * chunk) {
 }
 
 uintptr_t getArenaEnd(ArenaHeader * arena) {
-  return (uintptr_t)arena->first + (getObjectSize(arena) * getNumObjects(arena));
+  return (uintptr_t)arena->first + (getObjectSize(arena)*getNumObjects(arena));
 }
 
 ObjectHeader * allocFromArena(ArenaHeader * arena) {
@@ -283,20 +287,11 @@ ObjectHeader * allocFromArena(ArenaHeader * arena) {
     arena->free = arena->free + getObjectSize(arena);
     arena->num_alloc++;
   }
-
-  if (o != NULL) {
-    ObjectHeader ** s = getSlots(o);
-    // Initialize all slots to Nil
-    for (int i = 0; i < getMaxObjectLength(arena); i++) {
-      s[i] = Nil;
-    }
-  }
-
   return o;
 }
 
-ArenaHeader * newArena(int segment, int variable_length) {
-  ArenaHeader * new_arena = allocateAlignedArena(segment, variable_length);
+ArenaHeader * newArena(int segment) {
+  ArenaHeader * new_arena = allocateAlignedArena(segment);
   ArenaHeader * first     = HEAP.free_arena[segment];
   new_arena->next = first;
   HEAP.free_arena[segment] = new_arena;
@@ -305,10 +300,33 @@ ArenaHeader * newArena(int segment, int variable_length) {
 }
 
 ObjectHeader * allocFromSegment(int segment, int variable_lengt) {
+  if (segment == VariableHeapSegment) {
+    int object_size = objectLengthToSize(variable_lengt);
+    ArenaHeader * arena = allocateAligned(object_size+ 1 + sizeof(ArenaHeader));
+
+    arena->first             = &getBytemap(arena)[1];
+    arena->num_alloc         = 1;
+    arena->segment           = segment;
+    arena->num_alloc         = 1;
+    arena->num_objects       = 1;
+    arena->object_size       = object_size;
+    arena->object_bits       = arenaAlignBits;
+
+
+    ArenaHeader * first     = HEAP.full_arena[segment];
+    arena->next = first;
+    HEAP.full_arena[segment] = arena;
+
+    // Zero bytemap
+    memset(getBytemap(arena), 0, 1);
+
+    return arena->first;
+  }
+
   ArenaHeader * arena = HEAP.free_arena[segment];
   while (1) {
     if (arena == NULL) {
-      arena = newArena(segment, variable_lengt);
+      arena = newArena(segment);
       if (arena == NULL) return NULL;
     }
       debug("allocating object in arena %p\n", arena);
@@ -347,7 +365,15 @@ ObjectHeader * alloc(size_t length) {
          (HeapSegmentSize[segment] >= objectLengthToSize(length)));
 
   ObjectHeader * o = allocFromSegment(segment, length);
-  if (o == NULL) return NULL;
+
+ if (o == NULL) return NULL;
+
+  ObjectHeader ** s = getSlots(o);
+  // Initialize all slots to Nil
+  for (int i = 0; i < length; i++) {
+    s[i] = Nil;
+  }
+
   o->length = length;
   return o;
 }
@@ -395,12 +421,25 @@ ObjectHeader * stackPop(StackChunk ** stack_) {
 
 void gcMark(ObjectHeader * root) {
   StackChunk * stack = allocStackChunk();
+  *getMark(Nil, chunkFromPtr(Nil))   = greyMark;
+  *getMark(root, chunkFromPtr(root)) = greyMark;
+  stackPush(&stack, Nil);
   stackPush(&stack, root);
 
   while(!stackEmpty(stack)) {
     ObjectHeader * cur = stackPop(&stack);
     ArenaHeader * arena = chunkFromPtr(cur);
     char * mark = getMark(cur, arena);
+#ifdef DEBUG
+    ObjectHeader ** children = getSlots(cur);
+    assert(*mark != whiteMark);
+    if (*mark == blackMark) {
+      for (int i = 0; i < cur->length; i++) {
+        ObjectHeader * child = children[i];
+        assert(*getMark(child, chunkFromPtr(child)) != whiteMark);
+      }
+    }
+#endif
     if (*mark != blackMark) {
       ObjectHeader ** children = getSlots(cur);
       for (int i = 0; i < cur->length; i++) {
@@ -448,6 +487,15 @@ void sweepArena(ArenaHeader * arena) {
 
 void gcSweep() {
   for (int i = 0; i < HeapSegments; i++) {
+    if (i == VariableHeapSegment) {
+      //TODO: properly release them
+      ArenaHeader * arena = HEAP.full_arena[i];
+      while (arena != NULL) {
+        *getMark(arena->first, arena) = whiteMark;
+        arena = arena->next;
+      }
+      continue;
+    }
     ArenaHeader * arena     = HEAP.free_arena[i];
     ArenaHeader * last_free = NULL;
     while (arena != NULL) {
@@ -456,7 +504,7 @@ void gcSweep() {
         if (last_free != NULL) {
           last_free->next = arena->next;
         } else {
-          HEAP.free_arena[i] = arena;
+          HEAP.free_arena[i] = arena->next;
         }
         ArenaHeader * to_free = arena;
         arena = arena->next;
@@ -516,12 +564,8 @@ void initGc() {
     assert (1<<object_bits == object_size);
 
     int num_objects = calcNumOfObjects(arenaSize, object_size);
-    int max_length  = objectSizeToLength(object_size);
 
     GcLookupNumObject[i]  = num_objects;
-    GcLookupMaxLength[i]  = max_length;
-    GcLookupObjectSize[i] = object_size;
-    GcLookupObjectBits[i] = object_bits;
   }
 
   int segment = 0;
@@ -538,6 +582,8 @@ void initGc() {
            (HeapSegmentSize[segment] >= size &&
             (segment == 0 || HeapSegmentSize[segment-1] < size)));
   }
+
+  Nil = alloc(0);
 }
 
 void teardownGc() {
