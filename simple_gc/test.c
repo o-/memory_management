@@ -24,10 +24,12 @@ ObjectHeader * allocTree(int depth, ObjectHeader * parent, long round) {
   }
   int length;
   if (rand()%100000 == 1) {
-    // Create a large vector once in a while
+    // Create large vectors once in a while
     length = 1 + rand() % 10000;
+  } else if (rand()%10000 == 1) {
+    length = 1 + rand() % 509;
   } else {
-    length = 1 + rand() % 125;
+    length = 1 + rand() % 50;
   }
   ObjectHeader *  o = alloc(length);
   o->some_header_bits = round;
@@ -35,7 +37,7 @@ ObjectHeader * allocTree(int depth, ObjectHeader * parent, long round) {
   // Keep a backpointer in slot 0
   s[0] = parent;
   for (int i = 1; i < length; i++) {
-    if (rand() % 10 > 7) {
+    if (rand() % 20 > 13) {
       s[i] = allocTree(depth - 1, o, round);
     }
   }
@@ -82,7 +84,7 @@ int main(){
     static struct timespec a, b, c;
 
     clock_gettime(CLOCK_REALTIME, &a);
-    ObjectHeader * tree = allocTree(6, Nil, i);
+    ObjectHeader * tree = allocTree(8, Nil, i);
     clock_gettime(CLOCK_REALTIME, &b);
 
     printf("allocation took: %lu ms\n", getDiff(a, b) / 1000000);
