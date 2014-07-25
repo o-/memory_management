@@ -182,10 +182,10 @@ uintptr_t nextAlignedAddress(uintptr_t base) {
   return (base+arenaAlignment) & ~arenaAlignMask;
 }
 
-ArenaHeader * allocateAlignedArena(int segment) {
+ArenaHeader * allocateAligned(int segment, int variable_length) {
   int OSPageAlignment = sysconf(_SC_PAGESIZE);
 
-  int aligned_length = arenaAlignment;
+  int aligned_length = roundUpMemory(variable_length, OSPageAlignment);
   // Length aligned to OS page size (required for mmap)
   assert(aligned_length % OSPageAlignment == 0);
   // Virtual memory needed to satisfy chunk alignment
@@ -236,10 +236,16 @@ ArenaHeader * allocateAlignedArena(int segment) {
   }
 
   assert(commited == aligned_base_ptr);
-  ArenaHeader * chunk = (ArenaHeader*) aligned_base_ptr;
+  return commited;
+}
+
+
+ArenaHeader * allocateAlignedArena(int segment, int variable_length) {
+  ArenaHeader * chunk = allocateAligned(segment, arenaSize);
 
   chunk->segment           = segment;
-  int num_objects          = getNumObjects(chunk);
+  int num_objects          = (segment == VariableHeapSegment) ?
+                              1 : getNumObjects(chunk);
 
   chunk->first             = (void*) ((uintptr_t)(chunk + 1) + num_objects);
   chunk->free              = chunk->first;
@@ -247,7 +253,7 @@ ArenaHeader * allocateAlignedArena(int segment) {
   chunk->num_alloc         = 0;
 
   assert((getNumObjects(chunk)+1) * getObjectSize(chunk) +
-         sizeof(ArenaHeader) <= aligned_length);
+         sizeof(ArenaHeader) <= arenaSize);
 
   // Zero bytemap
   memset(getBytemap(chunk), 0, num_objects);
@@ -289,8 +295,8 @@ ObjectHeader * allocFromArena(ArenaHeader * arena) {
   return o;
 }
 
-ArenaHeader * newArena(int segment) {
-  ArenaHeader * new_arena = allocateAlignedArena(segment);
+ArenaHeader * newArena(int segment, int variable_length) {
+  ArenaHeader * new_arena = allocateAlignedArena(segment, variable_length);
   ArenaHeader * first     = HEAP.free_arena[segment];
   new_arena->next = first;
   HEAP.free_arena[segment] = new_arena;
@@ -298,11 +304,11 @@ ArenaHeader * newArena(int segment) {
   return new_arena;
 }
 
-ObjectHeader * allocFromSegment(int segment) {
+ObjectHeader * allocFromSegment(int segment, int variable_lengt) {
   ArenaHeader * arena = HEAP.free_arena[segment];
   while (1) {
     if (arena == NULL) {
-      arena = newArena(segment);
+      arena = newArena(segment, variable_lengt);
       if (arena == NULL) return NULL;
     }
       debug("allocating object in arena %p\n", arena);
@@ -340,7 +346,7 @@ ObjectHeader * alloc(size_t length) {
   assert(segment >= FixedHeapSegments ||
          (HeapSegmentSize[segment] >= objectLengthToSize(length)));
 
-  ObjectHeader * o = allocFromSegment(segment);
+  ObjectHeader * o = allocFromSegment(segment, length);
   if (o == NULL) return NULL;
   o->length = length;
   return o;
