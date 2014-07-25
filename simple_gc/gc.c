@@ -319,11 +319,11 @@ ObjectHeader * allocFromSegment(int segment, int variable_lengt) {
     arena->first             = &getBytemap(arena)[1];
     arena->num_alloc         = 1;
     arena->segment           = segment;
-    arena->num_alloc         = 1;
     arena->num_objects       = 1;
     arena->object_size       = object_size;
     arena->object_bits       = arenaAlignBits;
-
+    arena->free              = (void*)getArenaEnd(arena);
+    arena->free_list         = NULL;
 
     ArenaHeader * first     = HEAP.full_arena[segment];
     arena->next = first;
@@ -499,28 +499,6 @@ void sweepArena(ArenaHeader * arena) {
 
 void gcSweep() {
   for (int i = 0; i < HeapSegments; i++) {
-    if (i == VariableHeapSegment) {
-      ArenaHeader * arena = HEAP.full_arena[i];
-      ArenaHeader * last  = NULL;
-      while (arena != NULL) {
-        char * mark = getMark(arena->first, arena);
-        if (*mark == whiteMark) {
-          if (last != NULL) {
-            last->next = arena->next;
-          } else {
-            HEAP.full_arena[i] = arena->next;
-          }
-          ArenaHeader * to_free = arena;
-          arena = arena->next;
-          freeArena(to_free);
-        } else {
-          *mark = whiteMark;
-          last = arena;
-          arena = arena->next;
-        }
-      }
-      continue;
-    }
     ArenaHeader * arena     = HEAP.free_arena[i];
     ArenaHeader * last_free = NULL;
     while (arena != NULL) {
