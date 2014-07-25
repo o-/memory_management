@@ -179,11 +179,16 @@ uintptr_t nextAlignedAddress(uintptr_t base) {
 ArenaHeader * allocateAligned(int variable_length) {
   int OSPageAlignment = sysconf(_SC_PAGESIZE);
 
-  //void * ptr;
-  //posix_memalign(&ptr, arenaAlignment, variable_length);
-  //return ptr;
-
   int aligned_length = roundUpMemory(variable_length, OSPageAlignment);
+
+  void * commited = NULL;
+
+#ifdef USE_POSIX_MEMALIGN
+  posix_memalign(&commited, arenaAlignment, aligned_length);
+  if(commited == NULL) return NULL;
+
+#else
+
   // Length aligned to OS page size (required for mmap)
   assert(aligned_length % OSPageAlignment == 0);
   // Virtual memory needed to satisfy chunk alignment
@@ -223,19 +228,21 @@ ArenaHeader * allocateAligned(int variable_length) {
   assert(request_length = prefix + aligned_length + suffix);
 
   // Reserve memory for the aligned block
-  void * commited = mmap(aligned_base_ptr,
-                         aligned_length,
-                         PROT_READ | PROT_WRITE,
-                         MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED,
-                         -1,
-                         0);
+  commited = mmap(aligned_base_ptr,
+                  aligned_length,
+                  PROT_READ | PROT_WRITE,
+                  MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED,
+                  -1,
+                  0);
   if (commited != aligned_base_ptr) {
     munmap(aligned_base_ptr, aligned_length);
     return NULL;
   }
 
-  ((ArenaHeader*)commited)->raw_size = aligned_length;
   assert(commited == aligned_base_ptr);
+#endif
+
+  ((ArenaHeader*)commited)->raw_size = aligned_length;
   return commited;
 }
 
@@ -267,7 +274,11 @@ ArenaHeader * allocateAlignedArena(int segment) {
 }
 
 void freeArena(ArenaHeader * arena) {
+#ifdef USE_POSIX_MEMALIGN
+  free(arena);
+#else
   munmap(arena, arena->raw_size);
+#endif
 }
 
 uintptr_t getArenaEnd(ArenaHeader * arena) {
