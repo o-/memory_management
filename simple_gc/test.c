@@ -25,13 +25,13 @@ ObjectHeader * allocTree(int depth, ObjectHeader * parent, long round) {
   if (depth == 0) {
     return Nil;
   }
-  int size          = 2 + rand() % 11;
-  ObjectHeader *  o = alloc(size);
+  int length          = 1 + rand() % 11;
+  ObjectHeader *  o = alloc(length);
   o->some_header_bits = round;
   ObjectHeader ** s = getSlots(o);
   // Keep a backpointer in slot 0
   s[0] = parent;
-  for (int i = 1; i < size; i++) {
+  for (int i = 1; i < length; i++) {
     s[i] = allocTree(depth - 1, o, round);
   }
   return o;
