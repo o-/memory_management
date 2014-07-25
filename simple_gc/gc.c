@@ -34,7 +34,7 @@ static int GcLookupNumObject[FixedHeapSegments];
 static int GcLookupObjectSize[FixedHeapSegments];
 static int GcLookupObjectBits[FixedHeapSegments];
 static int GcLookupMaxLength[FixedHeapSegments];
-#define GcLookupSegmentSize (512/SlotSize)
+#define GcLookupSegmentSize ((EmptyObjectSize<<5)/SlotSize)
 static int GcLookupSegment[GcLookupSegmentSize];
 
 static char whiteMark  = 0;
@@ -338,7 +338,7 @@ ObjectHeader * alloc(size_t length) {
   assert(segment == 0 ||
          (HeapSegmentSize[segment-1] < objectLengthToSize(length)));
   assert(segment >= FixedHeapSegments ||
-         (HeapSegmentSize[segment+1] > objectLengthToSize(length)));
+         (HeapSegmentSize[segment] >= objectLengthToSize(length)));
 
   ObjectHeader * o = allocFromSegment(segment);
   if (o == NULL) return NULL;
@@ -527,8 +527,8 @@ void initGc() {
     GcLookupSegment[i] = segment < FixedHeapSegments ? segment : -1;
 
     assert(!(size < HeapSegmentSize[FixedHeapSegments] &&
-             segment == -1));
-    assert(segment == -1 ||
+             GcLookupSegment[i] == -1));
+    assert(GcLookupSegment[i] == -1 ||
            (HeapSegmentSize[segment] >= size &&
             (segment == 0 || HeapSegmentSize[segment-1] < size)));
   }
