@@ -437,8 +437,19 @@ void gcSweep() {
     ArenaHeader * last_free = NULL;
     while (arena != NULL) {
       sweepArena(arena);
-      last_free = arena;
-      arena = arena->next;
+      if (arena->num_alloc == 0) {
+        if (last_free != NULL) {
+          last_free->next = arena->next;
+        } else {
+          HEAP.free_arena[i] = arena;
+        }
+        ArenaHeader * to_free = arena;
+        arena = arena->next;
+        freeArena(to_free);
+      } else {
+        last_free = arena;
+        arena = arena->next;
+      }
     }
     arena = HEAP.full_arena[i];
     ArenaHeader * prev_full = NULL;
@@ -447,7 +458,11 @@ void gcSweep() {
       float population = (float)arena->num_alloc / (float)getNumObjects(arena);
       // Move arenas with empty space to the free_arena list
       if (population < 0.98) {
-        last_free->next = arena;
+        if (last_free != NULL) {
+          last_free->next = arena;
+        } else {
+          HEAP.free_arena[i] = arena;
+        }
         last_free = arena;
         if (prev_full == NULL) {
           HEAP.full_arena[i] = arena->next;
@@ -479,6 +494,7 @@ void initGc() {
   assert(arenaSize      % sysconf(_SC_PAGESIZE) == 0);
   assert(arenaSize <= arenaAlignment);
 
+  // Build the various lookup tables
   for (int i = 0; i < FixedHeapSegments; i++) {
     int object_size = HeapSegmentSize[i];
     int object_bits = log2(object_size);
@@ -506,7 +522,6 @@ void initGc() {
     assert(segment == -1 ||
            (HeapSegmentSize[segment] >= size &&
             HeapSegmentSize[segment-1] < size));
-
   }
 }
 
