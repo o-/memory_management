@@ -89,40 +89,40 @@ int objectLengthToSize(int length) {
   return (length * SlotSize) + sizeof(ObjectHeader);
 }
 
-extern inline int getFixedSegment(int length) {
+int getFixedSegment(int length) {
   if (length > GcLookupSegmentSize) return -1;
   return GcLookupSegment[length];
 }
 
-extern inline int getNumObjects(ArenaHeader * arena) {
+int getNumObjects(ArenaHeader * arena) {
   assert(arena->segment >= 0);
   assert(arena->segment < FixedHeapSegments);
   return GcLookupNumObject[arena->segment];
 }
 
-extern inline int getObjectSize(ArenaHeader * arena) {
+int getObjectSize(ArenaHeader * arena) {
   assert(arena->segment >= 0);
   assert(arena->segment < FixedHeapSegments);
   return GcLookupObjectSize[arena->segment];
 }
 
-extern inline int getMaxObjectLength(ArenaHeader * arena) {
+int getMaxObjectLength(ArenaHeader * arena) {
   assert(arena->segment >= 0);
   assert(arena->segment < FixedHeapSegments);
   return GcLookupMaxLength[arena->segment];
 }
 
-extern inline int getObjectBits(ArenaHeader * arena) {
+int getObjectBits(ArenaHeader * arena) {
   assert(arena->segment >= 0);
   assert(arena->segment < FixedHeapSegments);
   return GcLookupObjectBits[arena->segment];
 }
 
-extern inline int getBytemapIndex(void * base, ArenaHeader * arena) {
+int getBytemapIndex(void * base, ArenaHeader * arena) {
   return ((uintptr_t)base - (uintptr_t)arena->first) >> getObjectBits(arena);
 }
 
-extern inline char * getBytemap(ArenaHeader * base) {
+char * getBytemap(ArenaHeader * base) {
   return (char*)(base + 1);
 }
 
@@ -134,11 +134,11 @@ inline int isMaskable(void * ptr, ArenaHeader * chunk) {
   return (uintptr_t)ptr < (uintptr_t)chunk+arenaAlignment;
 }
 
-extern inline ArenaHeader * chunkFromPtr(void * base) {
+ArenaHeader * chunkFromPtr(void * base) {
   return (ArenaHeader*)((uintptr_t)base & ~arenaAlignMask);
 }
 
-extern inline char * getMark(void * ptr, ArenaHeader * arena) {
+char * getMark(void * ptr, ArenaHeader * arena) {
   char *        bm    = getBytemap(arena);
   int           idx   = getBytemapIndex(ptr, arena);
   return bm + idx;
@@ -259,7 +259,7 @@ void freeArena(ArenaHeader * chunk) {
   munmap(chunk, arenaSize);
 }
 
-extern inline uintptr_t getArenaEnd(ArenaHeader * arena) {
+uintptr_t getArenaEnd(ArenaHeader * arena) {
   return (uintptr_t)arena->first + (getObjectSize(arena) * getNumObjects(arena));
 }
 
@@ -354,7 +354,7 @@ struct StackChunk {
   int top;
 };
 
-extern inline StackChunk * allocStackChunk() {
+StackChunk * allocStackChunk() {
   assert(sizeof(StackChunk) <= 4016);
   StackChunk * stack = gcSpaceMalloc(sizeof(StackChunk));
   stack->top = 0;
@@ -362,11 +362,11 @@ extern inline StackChunk * allocStackChunk() {
   return stack;
 }
 
-extern inline int stackEmpty(StackChunk * stack) {
+int stackEmpty(StackChunk * stack) {
   return stack->top == 0 && stack->prev == NULL;
 }
 
-extern inline void stackPush(StackChunk ** stack_, ObjectHeader * o) {
+void stackPush(StackChunk ** stack_, ObjectHeader * o) {
   StackChunk * stack = *stack_;
   if (stack->top == StackChunkSize) {
     *stack_ = allocStackChunk();
@@ -376,7 +376,7 @@ extern inline void stackPush(StackChunk ** stack_, ObjectHeader * o) {
   stack->entry[stack->top++] = o;
 }
 
-extern inline ObjectHeader * stackPop(StackChunk ** stack_) {
+ObjectHeader * stackPop(StackChunk ** stack_) {
   StackChunk * stack = *stack_;
   if (stack->top == 0) {
     if (stack->prev == NULL) {
