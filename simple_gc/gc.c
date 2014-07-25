@@ -9,8 +9,15 @@
 
 #include <sys/mman.h>
 
+extern ObjectHeader * Nil;
+
+
 #define SlotSize sizeof(double)
 #define EmptyObjectSize 32
+
+const int arenaAlignment;
+const int arenaAlignBits;
+const int arenaAlignMask;
 
 #define VariableHeapSegment 6
 #define FixedHeapSegments   6

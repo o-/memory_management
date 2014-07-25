@@ -30,10 +30,6 @@ struct ObjectHeader {
   ObjectHeader * attrib;
 };
 
-extern const int arenaAlignment;
-extern const int arenaAlignBits;
-extern const int arenaAlignMask;
-
 static ObjectHeader * Nil;
 
 typedef struct FreeObject FreeObject;
