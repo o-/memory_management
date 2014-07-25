@@ -234,6 +234,7 @@ ArenaHeader * allocateAligned(int variable_length) {
     return NULL;
   }
 
+  ((ArenaHeader*)commited)->raw_size = aligned_length;
   assert(commited == aligned_base_ptr);
   return commited;
 }
@@ -265,8 +266,8 @@ ArenaHeader * allocateAlignedArena(int segment) {
   return chunk;
 }
 
-void freeArena(ArenaHeader * chunk) {
-  munmap(chunk, arenaSize);
+void freeArena(ArenaHeader * arena) {
+  munmap(arena, arena->raw_size);
 }
 
 uintptr_t getArenaEnd(ArenaHeader * arena) {
@@ -488,11 +489,24 @@ void sweepArena(ArenaHeader * arena) {
 void gcSweep() {
   for (int i = 0; i < HeapSegments; i++) {
     if (i == VariableHeapSegment) {
-      //TODO: properly release them
       ArenaHeader * arena = HEAP.full_arena[i];
+      ArenaHeader * last  = NULL;
       while (arena != NULL) {
-        *getMark(arena->first, arena) = whiteMark;
-        arena = arena->next;
+        char * mark = getMark(arena->first, arena);
+        if (*mark == whiteMark) {
+          if (last != NULL) {
+            last->next = arena->next;
+          } else {
+            HEAP.full_arena[i] = arena->next;
+          }
+          ArenaHeader * to_free = arena;
+          arena = arena->next;
+          freeArena(to_free);
+        } else {
+          *mark = whiteMark;
+          last = arena;
+          arena = arena->next;
+        }
       }
       continue;
     }
@@ -560,8 +574,7 @@ void initGc() {
   // Build the various lookup tables
   for (int i = 0; i < FixedHeapSegments; i++) {
     int object_size = HeapSegmentSize[i];
-    int object_bits = log2(object_size);
-    assert (1<<object_bits == object_size);
+    assert (1<<log2(object_size) == object_size);
 
     int num_objects = calcNumOfObjects(arenaSize, object_size);
 
