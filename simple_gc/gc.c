@@ -18,8 +18,8 @@ const int arenaAlignment;
 const int arenaAlignBits;
 const int arenaAlignMask;
 
-#define VariableHeapSegment 6
-#define FixedHeapSegments   6
+#define VariableHeapSegment 8
+#define FixedHeapSegments   8
 #define HeapSegments (VariableHeapSegment + 1)
 
 static int HeapSegmentSize[FixedHeapSegments] = {EmptyObjectSize,
@@ -27,7 +27,9 @@ static int HeapSegmentSize[FixedHeapSegments] = {EmptyObjectSize,
                                                  EmptyObjectSize<<2,
                                                  EmptyObjectSize<<3,
                                                  EmptyObjectSize<<4,
-                                                 EmptyObjectSize<<5};
+                                                 EmptyObjectSize<<5,
+                                                 EmptyObjectSize<<6,
+                                                 EmptyObjectSize<<7};
 
 #define GcLookupSegmentSize ((EmptyObjectSize<<5)/SlotSize)
 static int GcLookupNumObject[FixedHeapSegments];
@@ -664,7 +666,7 @@ void printMemoryStatistics() {
     ArenaHeader * arena = HEAP.free_arena[i];
     while (arena != NULL) {
       ArenaHeader * next = arena->next;
-      space  += arenaSize;
+      space  += arena->raw_size;
       usable += getNumObjects(arena) * getObjectSize(arena);
       used   += arena->num_alloc * getObjectSize(arena);
       arena = next;
@@ -672,7 +674,7 @@ void printMemoryStatistics() {
     arena = HEAP.full_arena[i];
     while (arena != NULL) {
       ArenaHeader * next = arena->next;
-      space  += arenaSize;
+      space  += arena->raw_size;
       usable += getNumObjects(arena) * getObjectSize(arena);
       used   += arena->num_alloc * getObjectSize(arena);
       arena = next;
