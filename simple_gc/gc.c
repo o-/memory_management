@@ -18,8 +18,8 @@ const int arenaAlignment;
 const int arenaAlignBits;
 const int arenaAlignMask;
 
-#define VariableHeapSegment 8
-#define FixedHeapSegments   8
+#define VariableHeapSegment 7
+#define FixedHeapSegments   7
 #define HeapSegments (VariableHeapSegment + 1)
 
 static int HeapSegmentSize[FixedHeapSegments] = {EmptyObjectSize,
@@ -28,10 +28,9 @@ static int HeapSegmentSize[FixedHeapSegments] = {EmptyObjectSize,
                                                  EmptyObjectSize<<3,
                                                  EmptyObjectSize<<4,
                                                  EmptyObjectSize<<5,
-                                                 EmptyObjectSize<<6,
-                                                 EmptyObjectSize<<7};
+                                                 EmptyObjectSize<<6};
 
-#define GcLookupSegmentSize ((EmptyObjectSize<<5)/SlotSize)
+#define GcLookupSegmentSize ((EmptyObjectSize<<6)/SlotSize)
 static int GcLookupNumObject[FixedHeapSegments];
 static int GcLookupSegment[GcLookupSegmentSize];
 
@@ -150,7 +149,6 @@ size_t calcNumOfObjects(int total_size, int object_size) {
   usable          -= bytemap_size;
 
   // Increase as long as the bytemap fits
-  assert(((float)usable / (float)object_size) < bytemap_size);
   while (((float)usable / (float)object_size) < bytemap_size) {
     bytemap_size--;
     usable++;
@@ -259,7 +257,7 @@ ArenaHeader * allocateAlignedArena(int segment) {
   chunk->object_size       = HeapSegmentSize[segment];
   chunk->object_bits       = log2(HeapSegmentSize[segment]);
 
-  assert((num_objects+1) * chunk->object_size +
+  assert(num_objects * chunk->object_size +
          sizeof(ArenaHeader) <= arenaSize);
 
   // Zero bytemap
@@ -576,7 +574,7 @@ void initGc() {
   // Build the various lookup tables
   for (int i = 0; i < FixedHeapSegments; i++) {
     int object_size = HeapSegmentSize[i];
-    assert (1<<log2(object_size) == object_size);
+    assert (1<<(int)log2(object_size) == object_size);
 
     int num_objects = calcNumOfObjects(arenaSize, object_size);
 
