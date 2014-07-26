@@ -440,21 +440,22 @@ void gcMark(ObjectHeader * root) {
 
   while(!stackEmpty(markStack)) {
     ObjectHeader * cur = stackPop(&markStack);
+    long length        = cur->length;
     ArenaHeader * arena = chunkFromPtr(cur);
     char * mark = getMark(cur, arena, 0);
 #ifdef DEBUG
     ObjectHeader ** children = getSlots(cur);
     assert(*mark != whiteMark);
     if (*mark == blackMark) {
-      for (int i = 0; i < cur->length; i++) {
+      for (int i = 0; i < length; i++) {
         ObjectHeader * child = children[i];
         assert(*getMark(child, chunkFromPtr(child), 0) != whiteMark);
       }
     }
 #endif
     if (*mark != blackMark) {
-      ObjectHeader ** children = getSlots(cur);
-      for (int i = 0; i < cur->length; i++) {
+      ObjectHeader ** children        = getSlots(cur);
+      for (int i = 0; i < length; i++) {
         ObjectHeader * child = children[i];
         char * child_mark = getMark(child, chunkFromPtr(child), 0);
         if (*child_mark == whiteMark) {

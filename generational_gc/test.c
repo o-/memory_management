@@ -76,6 +76,7 @@ int main(){
   srand(90);
 
   int rounds = 10;
+  int depth  = 8;
 
   ObjectHeader *  root  = alloc(rounds);
   ObjectHeader ** roots = getSlots(root);
@@ -87,7 +88,7 @@ int main(){
     static struct timespec a, b, c;
 
     clock_gettime(CLOCK_REALTIME, &a);
-    ObjectHeader * tree = allocTree(8, Nil, i);
+    ObjectHeader * tree = allocTree(depth, Nil, i);
     clock_gettime(CLOCK_REALTIME, &b);
 
     printf("allocation took: %lu ms\n", getDiff(a, b) / 1000000);
