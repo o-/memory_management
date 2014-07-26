@@ -483,10 +483,12 @@ void sweepArena(ArenaHeader * arena) {
   char * finger = arena->first;
   arena->free_list = NULL;
   arena->num_alloc = 0;
-  while ((uintptr_t)finger < getArenaEnd(arena) &&
-         (uintptr_t)finger < (uintptr_t)arena->free) {
-    char * mark     = getMark(finger, arena, 0);
-    char * old_mark = getMark(finger, arena, 1);
+  FreeObject * free_list = NULL;
+  for (int i = 0;
+      i < arena->num_objects && (uintptr_t)finger < (uintptr_t)arena->free;
+      i++) {
+    char * mark     = &getBytemap(arena, 0)[i];
+    char * old_mark = &getBytemap(arena, 1)[i];
     assert((void*)mark < arena->first && (void*)old_mark < arena->first);
     assert(*mark != greyMark);
     if (*mark == whiteMark) {
@@ -502,8 +504,13 @@ void sweepArena(ArenaHeader * arena) {
       }
 #endif
       FreeObject * f = (FreeObject*)finger;
-      f->next = arena->free_list;
-      arena->free_list = f;
+      if (free_list == NULL) {
+        free_list = f;
+        arena->free_list = f;
+      } else {
+        free_list->next = f;
+        free_list = f;
+      }
     } else {
       if (*old_mark == whiteMark) {
         *mark     = whiteMark;
@@ -514,6 +521,9 @@ void sweepArena(ArenaHeader * arena) {
       arena->num_alloc++;
     }
     finger += getObjectSize(arena);
+  }
+  if (free_list != NULL) {
+    free_list->next = NULL;
   }
 }
 
