@@ -44,16 +44,13 @@ void allocTree(int depth,
   s[0] = parent;
   writeBarrier(o, parent);
 
-  if (rand() % 20 > 10) {
-    for (int i = 1; i < length; i++) {
+  for (int i = 1; i < length; i++) {
+    if (rand() % 20 > 10) {
+      alloc(length);
+    }
+    if (rand() % 20 > 7) {
       allocTree(depth - 1, o, &s[i], round);
     }
-  } else {
-    // Create some garbage
-    for (int i = 0; i < 0.5*round*length; i++) {
-      alloc(i);
-    }
-    allocTree(depth - 1, o, &s[0], round);
   }
 }
 

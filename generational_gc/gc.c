@@ -748,10 +748,6 @@ void doGc(int full_gc) {
     printf("full marking took: %lu ms\n", getDiff(a, b) / 1000000);
     printf("sweeping took: %lu ms\n", getDiff(b, c) / 1000000);
     printMemoryStatistics();
-  } else {
-    if (getDiff(a, c) / 1000000 > 3) {
-      printf("stale newspace collection took: %lu ms\n", getDiff(a, c) / 1000000);
-    }
   }
 }
 
