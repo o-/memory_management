@@ -15,9 +15,13 @@ void releaseSomeNodes(ObjectHeader * o) {
   }
 }
 
-ObjectHeader * allocTree(int depth, ObjectHeader * parent, long round) {
+void allocTree(int depth,
+               ObjectHeader * parent,
+               ObjectHeader ** child,
+               long round) {
   if (depth == 0) {
-    return Nil;
+    *child = Nil;
+    return;
   }
   int length;
   if (rand()%100000 == 1) {
@@ -28,21 +32,29 @@ ObjectHeader * allocTree(int depth, ObjectHeader * parent, long round) {
   } else {
     length = 1 + rand() % 50;
   }
-  ObjectHeader *  o = alloc(length);
+
+  ObjectHeader * o = NULL;
+  *child = alloc(length);
+  o = *child;
+  writeBarrier(parent, o);
+
   o->some_header_bits = round;
   ObjectHeader ** s = getSlots(o);
   // Keep a backpointer in slot 0
   s[0] = parent;
   writeBarrier(o, parent);
-  for (int i = 1; i < length; i++) {
-    ObjectHeader * c = allocTree(depth - 1, o, round);
-    // Leak some sub-trees
-    if (rand() % 20 > 10) {
-      s[i] = c;
-      writeBarrier(o, c);
+
+  if (rand() % 20 > 10) {
+    for (int i = 1; i < length; i++) {
+      allocTree(depth - 1, o, &s[i], round);
     }
+  } else {
+    // Create some garbage
+    for (int i = 0; i < 0.5*round*length; i++) {
+      alloc(i);
+    }
+    allocTree(depth - 1, o, &s[0], round);
   }
-  return o;
 }
 
 void verifyTree(ObjectHeader * node, ObjectHeader * parent, long round) {
@@ -59,15 +71,6 @@ void verifyTree(ObjectHeader * node, ObjectHeader * parent, long round) {
   }
 }
 
-unsigned long getDiff(struct timespec a, struct timespec b) {
-  if (a.tv_sec == b.tv_sec) {
-    return b.tv_nsec - a.tv_nsec;
-  } else {
-    return 1000000000L - a.tv_nsec + b.tv_nsec +
-           (1000000000L * (b.tv_sec - a.tv_sec));
-  }
-}
-
 int main(){
   initGc();
 
@@ -76,35 +79,16 @@ int main(){
   int rounds = 10;
   int depth  = 5;
 
-  ObjectHeader *  root  = alloc(rounds);
-  ObjectHeader ** roots = getSlots(root);
+  Root  = alloc(rounds);
+  ObjectHeader ** roots = getSlots(Root);
   for (int i = 0; i < rounds; i++) {
     roots[i] = Nil;
   }
 
   for (int i = 0; i < rounds; i++) {
-    static struct timespec a, b, c;
+    allocTree(depth, Nil, &roots[i], i);
 
-    clock_gettime(CLOCK_REALTIME, &a);
-    ObjectHeader * tree = allocTree(depth, Nil, i);
-    clock_gettime(CLOCK_REALTIME, &b);
-
-    printf("allocation took: %lu ms\n", getDiff(a, b) / 1000000);
-    printMemoryStatistics();
-
-    roots[i] = tree;
-    writeBarrier(root, tree);
-    releaseSomeNodes(tree);
-
-    clock_gettime(CLOCK_REALTIME, &a);
-    gcMark(root);
-    clock_gettime(CLOCK_REALTIME, &b);
-    gcSweep();
-    clock_gettime(CLOCK_REALTIME, &c);
-
-    printf("marking took: %lu ms\n", getDiff(a, b) / 1000000);
-    printf("sweeping took: %lu ms\n", getDiff(b, c) / 1000000);
-    printMemoryStatistics();
+    releaseSomeNodes(roots[i]);
 
     for (int j = 0; j < i; j++) {
       verifyTree(roots[j], Nil, j);

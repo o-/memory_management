@@ -25,13 +25,14 @@
 
 typedef struct ObjectHeader ObjectHeader;
 struct ObjectHeader {
-  int            some_header_bits : 31;
-  int            old              : 1;
+  unsigned int   some_header_bits : 31;
+  unsigned int   old              : 1;
   size_t         length;
   ObjectHeader * attrib;
 };
 
 extern ObjectHeader * Nil;
+extern ObjectHeader * Root;
 
 typedef struct ArenaHeader ArenaHeader;
 

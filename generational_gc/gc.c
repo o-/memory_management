@@ -6,10 +6,12 @@
 #include <math.h>
 #include <stdint.h>
 #include <string.h>
+#include <time.h>
 
 #include <sys/mman.h>
 
 ObjectHeader * Nil;
+ObjectHeader * Root;
 
 #define SlotSize sizeof(void*)
 #define EmptyObjectSize 32
@@ -36,8 +38,15 @@ static char blackMark  = 2;
 typedef struct Heap {
   ArenaHeader * free_arena[HeapSegments];
   ArenaHeader * full_arena[HeapSegments];
+  unsigned int heap_size_limit[HeapSegments];
+  unsigned int heap_size[HeapSegments];
 } Heap;
 
+static float heapGrow = 1.4;
+static float heapShrink = 1.3;
+static int heapInitSize = 3;
+static int fullGcInterval = 15;
+static int doFullGc = 15;
 
 #define GC_SPACE_SIZE (1<<21)
 typedef struct GcSpace {
@@ -176,7 +185,6 @@ size_t calcNumOfObjects(ArenaHeader * arena, int total_size, int object_size) {
   // AreaHeader | bytemap_offset | bytemap_gen0 | bytemap_gen1 | align
 
   int header = sizeof(ArenaHeader) + arenaHeaderOffset(arena) + arenaStartAlign;
-//  printf("%p -> a: %d\n", arena, arenaBytemapOffset(arena));
 
   int num_objects = (total_size - header) / (2 + object_size);
 
@@ -315,24 +323,26 @@ ArenaHeader * allocateAlignedArena(int segment) {
 }
 
 void freeArena(ArenaHeader * arena) {
+  HEAP.heap_size[arena->segment]--;
 #ifdef USE_POSIX_MEMALIGN
   free(arena);
 #else
   munmap(arena->raw_base, arena->raw_size);
 #endif
 }
+
 ObjectHeader * allocFromArena(ArenaHeader * arena) {
   ObjectHeader * o = NULL;
-  if (arena->free_list != NULL) {
-    // Freelist allocation in recycled space
-    o = (ObjectHeader*)arena->free_list;
-    arena->free_list = arena->free_list->next;
-    arena->num_alloc++;
-  }
   if ((uintptr_t)arena->free < getArenaEnd(arena)) {
     // Bump pointer allocation in virgin space
     o = (ObjectHeader*)arena->free;
     arena->free = arena->free + getObjectSize(arena);
+    arena->num_alloc++;
+  }
+  if (arena->free_list != NULL) {
+    // Freelist allocation in recycled space
+    o = (ObjectHeader*)arena->free_list;
+    arena->free_list = arena->free_list->next;
     arena->num_alloc++;
   }
   return o;
@@ -344,10 +354,13 @@ ArenaHeader * newArena(int segment) {
   new_arena->next = first;
   HEAP.free_arena[segment] = new_arena;
   debug("allocating new arena %p in segment %d\n", new_arena, segment);
+  HEAP.heap_size[segment]++;
   return new_arena;
 }
 
-ObjectHeader * allocFromSegment(int segment, int variable_lengt) {
+ObjectHeader * allocFromSegment(int segment,
+                                int variable_lengt,
+                                int new_arena) {
   if (segment == VariableHeapSegment) {
     int object_size = objectLengthToSize(variable_lengt);
 
@@ -372,6 +385,8 @@ ObjectHeader * allocFromSegment(int segment, int variable_lengt) {
     arena->next = first;
     HEAP.full_arena[segment] = arena;
 
+    HEAP.heap_size[segment]++;
+
     // Zero bytemap
     memset(getBytemap(arena, 0), 0, 2);
 
@@ -380,11 +395,11 @@ ObjectHeader * allocFromSegment(int segment, int variable_lengt) {
 
   ArenaHeader * arena = HEAP.free_arena[segment];
   while (1) {
-    if (arena == NULL) {
+    if (arena == NULL && new_arena == 1) {
       arena = newArena(segment);
-      if (arena == NULL) return NULL;
     }
-      debug("allocating object in arena %p\n", arena);
+    if (arena == NULL) return NULL;
+    debug("allocating object in arena %p\n", arena);
 
     ObjectHeader * o = allocFromArena(arena);
     if (o != NULL) {
@@ -404,6 +419,8 @@ ObjectHeader * allocFromSegment(int segment, int variable_lengt) {
   }
 }
 
+void doGc(int full);
+
 ObjectHeader * alloc(size_t length) {
   assert(length >= 0);
 
@@ -419,7 +436,21 @@ ObjectHeader * alloc(size_t length) {
   assert(segment >= FixedHeapSegments ||
          (HeapSegmentSize[segment] >= objectLengthToSize(length)));
 
-  ObjectHeader * o = allocFromSegment(segment, length);
+  int grow = HEAP.heap_size[segment] < HEAP.heap_size_limit[segment];
+
+  ObjectHeader * o = allocFromSegment(segment, length, grow);
+  if (o == NULL) {
+    doGc(doFullGc == 0);
+    if (doFullGc == 0) doFullGc = fullGcInterval;
+
+    o = allocFromSegment(segment, length, 0);
+    if (o == NULL) {
+      doFullGc--;
+      HEAP.heap_size_limit[segment] *= heapGrow;
+      HEAP.heap_size_limit[segment]++;
+      o = allocFromSegment(segment, length, 1);
+    }
+  }
 
   if (o == NULL) return NULL;
 
@@ -478,6 +509,11 @@ ObjectHeader * stackPop(StackChunk ** stack_) {
 
 static StackChunk * markStack = NULL;
 
+void resetMarkStack() {
+  gcSpaceClear();
+  markStack = allocStackChunk();
+}
+
 void gcMark(ObjectHeader * root) {
   *getMark(Nil, chunkFromPtr(Nil), 0)   = greyMark;
   *getMark(root, chunkFromPtr(root), 0) = greyMark;
@@ -514,8 +550,7 @@ void gcMark(ObjectHeader * root) {
     }
   }
 
-  gcSpaceClear();
-  markStack = allocStackChunk();
+  resetMarkStack();
 }
 
 void writeBarrier(ObjectHeader * parent, ObjectHeader * child) {
@@ -530,6 +565,11 @@ void sweepArena(ArenaHeader * arena) {
   char * finger = arena->first;
   arena->free_list = NULL;
   arena->num_alloc = 0;
+  float bump_space = (float)((uintptr_t)getArenaEnd(arena) -
+                             (uintptr_t)arena->free) /
+                     (float)((uintptr_t)getArenaEnd(arena) -
+                             (uintptr_t)arena->first);
+
   FreeObject * free_list = NULL;
   for (int i = 0;
       i < arena->num_objects && (uintptr_t)finger < (uintptr_t)arena->free;
@@ -538,6 +578,7 @@ void sweepArena(ArenaHeader * arena) {
     char * old_mark = &getBytemap(arena, 1)[i];
     assert((void*)mark < arena->first && (void*)old_mark < arena->first);
     assert(*mark != greyMark);
+
     if (*mark == whiteMark) {
       if (!*old_mark == whiteMark) {
         *old_mark = whiteMark;
@@ -550,20 +591,21 @@ void sweepArena(ArenaHeader * arena) {
         s[i] = GC_ZAP_POINTER;
       }
 #endif
-      FreeObject * f = (FreeObject*)finger;
-      if (free_list == NULL) {
-        free_list = f;
-        arena->free_list = f;
-      } else {
-        free_list->next = f;
-        free_list = f;
+      // Do not create freelist for an almost empty area.
+      if (bump_space < 0.8) {
+        FreeObject * f = (FreeObject*)finger;
+        if (free_list == NULL) {
+          free_list = f;
+          arena->free_list = f;
+        } else {
+          free_list->next = f;
+          free_list = f;
+        }
       }
     } else {
+      assert(*mark == blackMark);
       if (*old_mark == whiteMark) {
-        *mark     = whiteMark;
         *old_mark = blackMark;
-      } else {
-        *mark = blackMark;
       }
       arena->num_alloc++;
     }
@@ -620,14 +662,22 @@ void gcSweep() {
         arena = arena->next;
       }
     }
+    int shrink = HEAP.heap_size[i] * heapShrink;
+    if ( HEAP.heap_size_limit[i] > shrink && shrink >= heapInitSize) {
+      HEAP.heap_size_limit[i] = shrink;
+    }
   }
 }
 
 
 void initGc() {
   gcSpaceClear();
-  for (int i = 0; i < HeapSegments; HEAP.free_arena[i++] = NULL);
-  for (int i = 0; i < HeapSegments; HEAP.full_arena[i++] = NULL);
+  for (int i = 0; i < HeapSegments; i++) {
+    HEAP.free_arena[i]      = NULL;
+    HEAP.full_arena[i]      = NULL;
+    HEAP.heap_size_limit[i] = heapInitSize;
+    HEAP.heap_size[i]       = 0;
+  }
 
   assert(1<<((int)log2(EmptyObjectSize)) == EmptyObjectSize);
   assert(EmptyObjectSize >= sizeof(ObjectHeader));
@@ -656,6 +706,53 @@ void initGc() {
 
   Nil = alloc(0);
   markStack = allocStackChunk();
+}
+
+unsigned long getDiff(struct timespec a, struct timespec b) {
+  if (a.tv_sec == b.tv_sec) {
+    return b.tv_nsec - a.tv_nsec;
+  } else {
+    return 1000000000L - a.tv_nsec + b.tv_nsec +
+           (1000000000L * (b.tv_sec - a.tv_sec - 1));
+  }
+}
+
+void doGc(int full_gc) {
+  if (full_gc) {
+    resetMarkStack();
+
+    for (int i = 0; i < HeapSegments; i++) {
+      ArenaHeader * arena = HEAP.free_arena[i];
+      while (arena != NULL) {
+        ArenaHeader * next = arena->next;
+        memset(getBytemap(arena,0), 0, 2*arena->num_objects);
+        arena = next;
+      }
+      arena = HEAP.full_arena[i];
+      while (arena != NULL) {
+        ArenaHeader * next = arena->next;
+        memset(getBytemap(arena,0), 0, 2*arena->num_objects);
+        arena = next;
+      }
+    }
+  }
+
+  static struct timespec a, b, c;
+  clock_gettime(CLOCK_REALTIME, &a);
+  gcMark(Root);
+  clock_gettime(CLOCK_REALTIME, &b);
+  gcSweep();
+  clock_gettime(CLOCK_REALTIME, &c);
+
+  if (full_gc) {
+    printf("full marking took: %lu ms\n", getDiff(a, b) / 1000000);
+    printf("sweeping took: %lu ms\n", getDiff(b, c) / 1000000);
+    printMemoryStatistics();
+  } else {
+    if (getDiff(a, c) / 1000000 > 3) {
+      printf("stale newspace collection took: %lu ms\n", getDiff(a, c) / 1000000);
+    }
+  }
 }
 
 void teardownGc() {
