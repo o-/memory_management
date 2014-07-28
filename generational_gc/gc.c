@@ -421,7 +421,9 @@ ObjectHeader * alloc(size_t length) {
 
   ObjectHeader * o = allocFromSegment(segment, length);
 
- if (o == NULL) return NULL;
+  if (o == NULL) return NULL;
+
+  o->old = 0;
 
   ObjectHeader ** s = getSlots(o);
   // Initialize all slots to Nil
@@ -483,10 +485,11 @@ void gcMark(ObjectHeader * root) {
   stackPush(&markStack, root);
 
   while(!stackEmpty(markStack)) {
-    ObjectHeader * cur = stackPop(&markStack);
-    long length        = cur->length;
+    ObjectHeader * cur  = stackPop(&markStack);
+    cur->old            = 1;
+    long length         = cur->length;
     ArenaHeader * arena = chunkFromPtr(cur);
-    char * mark = getMark(cur, arena, 0);
+    char * mark         = getMark(cur, arena, 0);
 #ifdef DEBUG
     ObjectHeader ** children = getSlots(cur);
     assert(*mark != whiteMark);
@@ -516,9 +519,8 @@ void gcMark(ObjectHeader * root) {
 }
 
 void writeBarrier(ObjectHeader * parent, ObjectHeader * child) {
-  char * p_mark = getMark(parent, chunkFromPtr(parent), 0);
-  char * c_mark = getMark(child,  chunkFromPtr(child), 0);
-  if (*p_mark != whiteMark && *c_mark == whiteMark) {
+  if (parent->old == 1 && child->old == 0) {
+    char * p_mark = getMark(parent, chunkFromPtr(parent), 0);
     *p_mark = greyMark;
     stackPush(&markStack, parent);
   }

@@ -25,7 +25,8 @@
 
 typedef struct ObjectHeader ObjectHeader;
 struct ObjectHeader {
-  int            some_header_bits : 32;
+  int            some_header_bits : 31;
+  int            old              : 1;
   size_t         length;
   ObjectHeader * attrib;
 };

@@ -73,8 +73,8 @@ int main(){
 
   srand(90);
 
-  int rounds = 2;
-  int depth  = 6;
+  int rounds = 10;
+  int depth  = 5;
 
   ObjectHeader *  root  = alloc(rounds);
   ObjectHeader ** roots = getSlots(root);
