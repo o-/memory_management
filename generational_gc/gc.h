@@ -32,24 +32,7 @@ struct ObjectHeader {
 
 extern ObjectHeader * Nil;
 
-typedef struct FreeObject FreeObject;
-struct FreeObject {
-  FreeObject * next;
-};
-
 typedef struct ArenaHeader ArenaHeader;
-struct ArenaHeader {
-  ArenaHeader * next;
-  unsigned char segment;
-  unsigned char object_bits;
-  unsigned int  num_alloc;
-  size_t        object_size;
-  unsigned int  num_objects;
-  size_t        raw_size;
-  void *        first;
-  void *        free;
-  FreeObject *  free_list;
-};
 
 inline ObjectHeader ** getSlots(ObjectHeader * o) {
   return (ObjectHeader**)(o+1);

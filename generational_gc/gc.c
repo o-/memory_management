@@ -11,12 +11,8 @@
 
 ObjectHeader * Nil;
 
-#define SlotSize sizeof(double)
+#define SlotSize sizeof(void*)
 #define EmptyObjectSize 32
-
-const int arenaAlignment;
-const int arenaAlignBits;
-const int arenaAlignMask;
 
 #define VariableHeapSegment 7
 #define FixedHeapSegments   7
@@ -70,6 +66,24 @@ void gcSpaceClear() {
 }
 
 static Heap HEAP;
+
+typedef struct FreeObject FreeObject;
+struct FreeObject {
+  FreeObject * next;
+};
+
+struct ArenaHeader {
+  ArenaHeader * next;
+  unsigned char segment;
+  unsigned char object_bits;
+  unsigned int  num_alloc;
+  size_t        object_size;
+  unsigned int  num_objects;
+  size_t        raw_size;
+  void *        first;
+  void *        free;
+  FreeObject *  free_list;
+};
 
 #define _CHUNK_ALIGN_BITS 20
 const int arenaAlignment = 1<<_CHUNK_ALIGN_BITS;

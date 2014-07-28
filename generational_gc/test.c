@@ -3,14 +3,11 @@
 
 #include <stdio.h>
 
-static ObjectHeader * SomeReleasedNode;
-
 void releaseSomeNodes(ObjectHeader * o) {
   if (o == Nil) return;
   ObjectHeader ** s = getSlots(o);
   for (int i = 1; i < o->length; i++) {
     if (s[i] != Nil && rand()%10 == 1) {
-      SomeReleasedNode = s[i];
       s[i] = Nil;
     } else {
       releaseSomeNodes(s[i]);
@@ -38,8 +35,9 @@ ObjectHeader * allocTree(int depth, ObjectHeader * parent, long round) {
   s[0] = parent;
   writeBarrier(o, parent);
   for (int i = 1; i < length; i++) {
-    if (rand() % 20 > 13) {
-      ObjectHeader * c = allocTree(depth - 1, o, round);
+    ObjectHeader * c = allocTree(depth - 1, o, round);
+    // Leak some sub-trees
+    if (rand() % 20 > 10) {
       s[i] = c;
       writeBarrier(o, c);
     }
@@ -76,7 +74,7 @@ int main(){
   srand(90);
 
   int rounds = 10;
-  int depth  = 8;
+  int depth  = 5;
 
   ObjectHeader *  root  = alloc(rounds);
   ObjectHeader ** roots = getSlots(root);
@@ -103,10 +101,6 @@ int main(){
     clock_gettime(CLOCK_REALTIME, &b);
     gcSweep();
     clock_gettime(CLOCK_REALTIME, &c);
-
-    // Check if the sample released node was properly collected
-    ObjectHeader ** s = getSlots(SomeReleasedNode);
-    assert(s[0] == GC_ZAP_POINTER);
 
     printf("marking took: %lu ms\n", getDiff(a, b) / 1000000);
     printf("sweeping took: %lu ms\n", getDiff(b, c) / 1000000);
