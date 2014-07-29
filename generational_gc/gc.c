@@ -50,6 +50,8 @@ static int heapInitSize = 3;
 static int fullGcInterval = 15;
 static int doFullGc = 15;
 
+static float arenaFullPercentage = 0.95;
+
 #define GC_SPACE_SIZE (1<<21)
 typedef struct GcSpace {
   int alloc;
@@ -92,6 +94,7 @@ struct ArenaHeader {
   void *        free;
   FreeObject *  free_list;
   ArenaHeader * next;
+  int           was_full;
   size_t        raw_size;
   void *        raw_base;
 };
@@ -294,7 +297,6 @@ ArenaHeader * allocateAligned(int variable_length) {
 uintptr_t getArenaEnd(ArenaHeader * arena) {
   return (uintptr_t)arena->first + (getObjectSize(arena)*getNumObjects(arena));
 }
-
 
 ArenaHeader * allocateAlignedArena(int segment) {
   ArenaHeader * chunk = NULL;
@@ -626,7 +628,7 @@ void sweepArena(ArenaHeader * arena) {
   }
 }
 
-void gcSweep() {
+void gcSweep(int full_gc) {
   for (int i = 0; i < HeapSegments; i++) {
     ArenaHeader * arena     = HEAP.free_arena[i];
     ArenaHeader * last_free = NULL;
@@ -649,28 +651,32 @@ void gcSweep() {
     arena = HEAP.full_arena[i];
     ArenaHeader * prev_full = NULL;
     while (arena != NULL) {
-      sweepArena(arena);
-      float population = (float)arena->num_alloc / (float)getNumObjects(arena);
-      // Move arenas with empty space to the free_arena list
-      if (population < 0.98) {
-        if (last_free != NULL) {
-          last_free->next = arena;
-        } else {
-          HEAP.free_arena[i] = arena;
+      if (full_gc || !arena->was_full) {
+        sweepArena(arena);
+        float population = (float)arena->num_alloc / (float)getNumObjects(arena);
+        // Move arenas with empty space to the free_arena list
+        if (population < arenaFullPercentage) {
+          if (last_free != NULL) {
+            last_free->next = arena;
+          } else {
+            HEAP.free_arena[i] = arena;
+          }
+          last_free = arena;
+          if (prev_full == NULL) {
+            HEAP.full_arena[i] = arena->next;
+          } else {
+            prev_full->next = arena->next;
+          }
+          ArenaHeader * next = arena->next;
+          arena->next = NULL;
+          arena = next;
+          continue;
         }
-        last_free = arena;
-        if (prev_full == NULL) {
-          HEAP.full_arena[i] = arena->next;
-        } else {
-          prev_full->next = arena->next;
-        }
-        ArenaHeader * next = arena->next;
-        arena->next = NULL;
-        arena = next;
-      } else {
-        prev_full = arena;
-        arena = arena->next;
+        // Arena is full -> don't sweep on minor collections
+        arena->was_full = 1;
       }
+      prev_full = arena;
+      arena = arena->next;
     }
     int shrink = HEAP.heap_size[i] * heapShrink;
     if ( HEAP.heap_size_limit[i] > shrink && shrink >= heapInitSize) {
@@ -751,7 +757,7 @@ void doGc(int full_gc) {
   clock_gettime(CLOCK_REALTIME, &a);
   gcMark(Root);
   clock_gettime(CLOCK_REALTIME, &b);
-  gcSweep();
+  gcSweep(full_gc);
   clock_gettime(CLOCK_REALTIME, &c);
 
 #ifdef DEBUG
