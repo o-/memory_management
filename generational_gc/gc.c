@@ -40,15 +40,18 @@ static char blackMark  = 2;
 typedef struct Heap {
   ArenaHeader * free_arena[HeapSegments];
   ArenaHeader * full_arena[HeapSegments];
-  unsigned int heap_size_limit[HeapSegments];
-  unsigned int heap_size[HeapSegments];
+  unsigned int heap_size_limit[FixedHeapSegments];
+  unsigned int heap_size[FixedHeapSegments];
 } Heap;
 
-static float heapGrow = 1.4;
-static float heapShrink = 1.3;
-static int heapInitSize = 3;
-static int fullGcInterval = 20;
+const float heapGrow = 1.4;
+const float heapShrink = 1.5;
+const int heapInitSize = 3;
+const int fullGcInterval = 20;
 static int doFullGc = 30;
+
+const int releaseVariableArenasInterval = 5;
+static int releaseVariableArenas = 5;
 
 static float arenaFullPercentage = 0.95;
 
@@ -333,7 +336,9 @@ ArenaHeader * allocateAlignedArena(int segment) {
 }
 
 void freeArena(ArenaHeader * arena) {
-  HEAP.heap_size[arena->segment]--;
+  if (arena->segment != VariableHeapSegment) {
+    HEAP.heap_size[arena->segment]--;
+  }
 #ifdef USE_POSIX_MEMALIGN
   free(arena);
 #else
@@ -364,7 +369,6 @@ ArenaHeader * newArena(int segment) {
   new_arena->next = first;
   HEAP.free_arena[segment] = new_arena;
   debug("allocating new arena %p in segment %d\n", new_arena, segment);
-  HEAP.heap_size[segment]++;
   return new_arena;
 }
 
@@ -395,8 +399,6 @@ ObjectHeader * allocFromSegment(int segment,
     arena->next = first;
     HEAP.full_arena[segment] = arena;
 
-    HEAP.heap_size[segment]++;
-
     // Zero bytemap
     memset(getBytemap(arena, 0), 0, 2);
 
@@ -407,6 +409,9 @@ ObjectHeader * allocFromSegment(int segment,
   while (1) {
     if (arena == NULL && new_arena == 1) {
       arena = newArena(segment);
+      if (arena != NULL) {
+        HEAP.heap_size[segment]++;
+      }
     }
     if (arena == NULL) return NULL;
     debug("allocating object in arena %p\n", arena);
@@ -446,7 +451,8 @@ ObjectHeader * alloc(size_t length) {
   assert(segment >= FixedHeapSegments ||
          (HeapSegmentSize[segment] >= objectLengthToSize(length)));
 
-  int grow = HEAP.heap_size[segment] < HEAP.heap_size_limit[segment];
+  int grow = segment != VariableHeapSegment ?
+    HEAP.heap_size[segment] < HEAP.heap_size_limit[segment] : 0;
 
   ObjectHeader * o = allocFromSegment(segment, length, grow);
   if (o == NULL) {
@@ -454,7 +460,7 @@ ObjectHeader * alloc(size_t length) {
     if (doFullGc <= 0) doFullGc = fullGcInterval;
 
     o = allocFromSegment(segment, length, 0);
-    if (o == NULL) {
+    if (o == NULL && segment != VariableHeapSegment) {
       doFullGc -= 2;
       HEAP.heap_size_limit[segment] *= heapGrow;
       HEAP.heap_size_limit[segment]++;
@@ -465,14 +471,23 @@ ObjectHeader * alloc(size_t length) {
   if (o == NULL) return NULL;
 
   setGen(o, 0);
+  o->length = length;
 
   ObjectHeader ** s = getSlots(o);
-  // Initialize all slots to Nil
-  for (int i = 0; i < length; i++) {
-    s[i] = Nil;
+
+  if (length == 0) return o;
+
+  // Initialize all slots to Nil (Duff device)
+  uintptr_t end = (uintptr_t)(s + length);
+  switch(length % 8) {
+    do {
+      case 0: *s++ = Nil; case 7: *s++ = Nil;
+      case 6: *s++ = Nil; case 5: *s++ = Nil;
+      case 4: *s++ = Nil; case 3: *s++ = Nil;
+      case 2: *s++ = Nil; case 1: *s++ = Nil;
+    } while((uintptr_t)s < end);
   }
 
-  o->length = length;
   return o;
 }
 
@@ -630,6 +645,15 @@ void sweepArena(ArenaHeader * arena) {
 
 void gcSweep(int full_gc) {
   for (int i = 0; i < HeapSegments; i++) {
+    if (i == VariableHeapSegment) {
+      if(releaseVariableArenas > 0) {
+        releaseVariableArenas--;
+        continue;
+      } else {
+        releaseVariableArenas = releaseVariableArenasInterval;
+      }
+    }
+
     ArenaHeader * arena     = HEAP.free_arena[i];
     ArenaHeader * last_free = NULL;
     while (arena != NULL) {
@@ -651,7 +675,7 @@ void gcSweep(int full_gc) {
     arena = HEAP.full_arena[i];
     ArenaHeader * prev_full = NULL;
     while (arena != NULL) {
-      if (full_gc || !arena->was_full) {
+      if (full_gc || !arena->was_full || i == FixedHeapSegments) {
         sweepArena(arena);
         float population = (float)arena->num_alloc / (float)getNumObjects(arena);
         // Move arenas with empty space to the free_arena list
@@ -678,10 +702,12 @@ void gcSweep(int full_gc) {
       prev_full = arena;
       arena = arena->next;
     }
-    int shrink = HEAP.heap_size[i] * heapShrink;
-    if ( HEAP.heap_size_limit[i] > shrink && shrink >= heapInitSize) {
-      if (doFullGc > 0) doFullGc--;
-      HEAP.heap_size_limit[i] = shrink;
+    if (i != VariableHeapSegment) {
+      int shrink = HEAP.heap_size[i] * heapShrink;
+      if ( HEAP.heap_size_limit[i] > shrink && shrink >= heapInitSize) {
+        if (doFullGc > 0) doFullGc--;
+        HEAP.heap_size_limit[i] = shrink;
+      }
     }
   }
 }
@@ -692,8 +718,10 @@ void initGc() {
   for (int i = 0; i < HeapSegments; i++) {
     HEAP.free_arena[i]      = NULL;
     HEAP.full_arena[i]      = NULL;
-    HEAP.heap_size_limit[i] = heapInitSize;
-    HEAP.heap_size[i]       = 0;
+    if (i != VariableHeapSegment) {
+      HEAP.heap_size_limit[i] = heapInitSize;
+      HEAP.heap_size[i]       = 0;
+    }
   }
 
   assert(1<<((int)log2(EmptyObjectSize)) == EmptyObjectSize);
