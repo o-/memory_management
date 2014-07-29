@@ -3,9 +3,11 @@
 
 #include "gc.h"
 
-int objectLengthToSize(int length);
 int heapSegmentNodeSize(int segment);
+int objectSizeToLength(int size);
+int objectLengthToSize(int length);
 int getNumObjects(ArenaHeader * arena);
+int getObjectSize(ArenaHeader * arena);
 
 typedef struct FreeObject FreeObject;
 
