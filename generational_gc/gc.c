@@ -741,12 +741,14 @@ void doGc(int full_gc) {
       ArenaHeader * arena = HEAP.free_arena[i];
       while (arena != NULL) {
         ArenaHeader * next = arena->next;
+        arena->was_full = 0;
         memset(getBytemap(arena,0), 0, 2*arena->num_objects);
         arena = next;
       }
       arena = HEAP.full_arena[i];
       while (arena != NULL) {
         ArenaHeader * next = arena->next;
+        arena->was_full = 0;
         memset(getBytemap(arena,0), 0, 2*arena->num_objects);
         arena = next;
       }
