@@ -47,8 +47,8 @@ typedef struct Heap {
 static float heapGrow = 1.4;
 static float heapShrink = 1.3;
 static int heapInitSize = 3;
-static int fullGcInterval = 15;
-static int doFullGc = 15;
+static int fullGcInterval = 20;
+static int doFullGc = 30;
 
 static float arenaFullPercentage = 0.95;
 
@@ -450,12 +450,12 @@ ObjectHeader * alloc(size_t length) {
 
   ObjectHeader * o = allocFromSegment(segment, length, grow);
   if (o == NULL) {
-    doGc(doFullGc == 0);
-    if (doFullGc == 0) doFullGc = fullGcInterval;
+    doGc(doFullGc <= 0);
+    if (doFullGc <= 0) doFullGc = fullGcInterval;
 
     o = allocFromSegment(segment, length, 0);
     if (o == NULL) {
-      doFullGc--;
+      doFullGc -= 2;
       HEAP.heap_size_limit[segment] *= heapGrow;
       HEAP.heap_size_limit[segment]++;
       o = allocFromSegment(segment, length, 1);
@@ -680,6 +680,7 @@ void gcSweep(int full_gc) {
     }
     int shrink = HEAP.heap_size[i] * heapShrink;
     if ( HEAP.heap_size_limit[i] > shrink && shrink >= heapInitSize) {
+      if (doFullGc > 0) doFullGc--;
       HEAP.heap_size_limit[i] = shrink;
     }
   }
