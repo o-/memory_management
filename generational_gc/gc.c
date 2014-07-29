@@ -159,11 +159,11 @@ char * getBytemap(ArenaHeader * base, int generation) {
   return ((char*)(base + 1)) + (base->num_objects * generation);
 }
 
-inline int isAligned(void * base, unsigned int align) {
+int isAligned(void * base, unsigned int align) {
   return (uintptr_t)base % align == 0;
 }
 
-inline int isMaskable(void * ptr, ArenaHeader * chunk) {
+int isMaskable(void * ptr, ArenaHeader * chunk) {
   return (uintptr_t)ptr < (uintptr_t)chunk+arenaAlignment;
 }
 
@@ -176,6 +176,12 @@ char * getMark(void * ptr, ArenaHeader * arena, int generation) {
   char *        bm    = getBytemap(arena, generation);
   int           idx   = getBytemapIndex(ptr, arena);
   return bm + idx;
+}
+
+void setGen(ObjectHeader * o, int gen) {
+  if (o->old != gen) {
+    o->old = gen;
+  }
 }
 
 extern inline ObjectHeader ** getSlots(ObjectHeader * o);
@@ -456,7 +462,7 @@ ObjectHeader * alloc(size_t length) {
 
   if (o == NULL) return NULL;
 
-  o->old = 0;
+  setGen(o, 0);
 
   ObjectHeader ** s = getSlots(o);
   // Initialize all slots to Nil
@@ -524,7 +530,7 @@ void gcMark(ObjectHeader * root) {
 
   while(!stackEmpty(markStack)) {
     ObjectHeader * cur  = stackPop(&markStack);
-    cur->old            = 1;
+    setGen(cur, 1);
     long length         = cur->length;
     ArenaHeader * arena = chunkFromPtr(cur);
     char * mark         = getMark(cur, arena, 0);
@@ -556,10 +562,12 @@ void gcMark(ObjectHeader * root) {
 }
 
 void writeBarrier(ObjectHeader * parent, ObjectHeader * child) {
-  if (parent->old == 1 && child->old == 0) {
+  if (parent->old > child->old) {
     char * p_mark = getMark(parent, chunkFromPtr(parent), 0);
-    *p_mark = greyMark;
-    stackPush(&markStack, parent);
+    if (*p_mark != greyMark) {
+      *p_mark = greyMark;
+      stackPush(&markStack, parent);
+    }
   }
 }
 

@@ -27,9 +27,6 @@ int getNumberOfMarkBits(ArenaHeader * arena);
 void inspectArena(ArenaHeader * arena);
 void printMemoryStatistics();
 
-void gcMark(ObjectHeader * root);
-void gcSweep();
-
 void initGc();
 void teardownGc();
 #endif
