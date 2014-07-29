@@ -491,7 +491,7 @@ ObjectHeader * alloc(size_t length) {
   return o;
 }
 
-#define StackChunkSize 500
+#define StackChunkSize 490
 typedef struct StackChunk StackChunk;
 struct StackChunk {
   StackChunk * prev;
