@@ -6,12 +6,6 @@
 
 #include "object.h"
 
-#ifdef DEBUG_PRINT
-#define debug(str, ...) (printf(str, __VA_ARGS__))
-#else
-#define debug(str, ...) ((void)0)
-#endif
-
 #define GC_ZAP_POINTER ((ObjectHeader*)0xdeadbeef)
 
 extern ObjectHeader * Nil;

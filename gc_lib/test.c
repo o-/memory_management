@@ -2,6 +2,7 @@
 #include <stdio.h>
 
 #include "object.h"
+#include "debugging.h"
 
 #ifdef BOEHM_GC
 

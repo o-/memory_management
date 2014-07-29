@@ -1,11 +1,11 @@
 #!/bin/bash
 
 echo "* debug"
-gcc -lm -std=gnu99 -Wall -g3 -DDEBUG -UDEBUG_PRINT -o bin/t_debug test.c gc.c  && time ./bin/t_debug
+gcc -lm -std=gnu99 -Wall -g3 -DDEBUG -UDEBUG_PRINT -o bin/t_debug *.c  && time ./bin/t_debug
 
 echo
 echo "* fast"
-gcc -lm -std=gnu99 -Wall -g -O2 -UDEBUG -o bin/t test.c gc.c  && time ./bin/t
+gcc -lm -std=gnu99 -Wall -g -O2 -UDEBUG -o bin/t *.c && time ./bin/t
 
 echo
 echo "* boehm"
