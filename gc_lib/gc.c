@@ -18,36 +18,12 @@
 #include "gc-heap.h"
 #include "gc-utils.h"
 #include "gc-heuristic.h"
+#include "gc-mark-stack.h"
 
 ObjectHeader * Nil;
 ObjectHeader * Root;
 
 static HeapStruct Heap;
-
-#define GC_SPACE_SIZE (1<<21)
-typedef struct GcSpace {
-  int alloc;
-  char * free;
-  char space[GC_SPACE_SIZE];
-} GcSpace;
-static GcSpace GC_SPACE;
-
-
-void * gcSpaceMalloc(size_t size) {
-  void * p = GC_SPACE.free;
-  GC_SPACE.alloc += size;
-  if (GC_SPACE.alloc > GC_SPACE_SIZE) {
-    puts("GC panic: no temp mem available");
-    exit(-1);
-  }
-  GC_SPACE.free += size;
-  return p;
-}
-
-void gcSpaceClear() {
-  GC_SPACE.free  = GC_SPACE.space;
-  GC_SPACE.alloc = 0;
-}
 
 #define _CHUNK_ALIGN_BITS 20
 const int arenaAlignment  = 1<<_CHUNK_ALIGN_BITS;
@@ -433,62 +409,15 @@ ObjectHeader * alloc(size_t length) {
   return o;
 }
 
-#define StackChunkSize 490
-typedef struct StackChunk StackChunk;
-struct StackChunk {
-  StackChunk * prev;
-  ObjectHeader * entry[StackChunkSize];
-  int top;
-};
-
-StackChunk * allocStackChunk() {
-  assert(sizeof(StackChunk) <= 4016);
-  StackChunk * stack = gcSpaceMalloc(sizeof(StackChunk));
-  stack->top = 0;
-  stack->prev = NULL;
-  return stack;
-}
-
-int stackEmpty(StackChunk * stack) {
-  return stack->top == 0 && stack->prev == NULL;
-}
-
-void stackPush(StackChunk ** stack_, ObjectHeader * o) {
-  StackChunk * stack = *stack_;
-  if (stack->top == StackChunkSize) {
-    *stack_ = allocStackChunk();
-    (*stack_)->prev = stack;
-    stack = *stack_;
-  }
-  stack->entry[stack->top++] = o;
-}
-
-ObjectHeader * stackPop(StackChunk ** stack_) {
-  StackChunk * stack = *stack_;
-  if (stack->top == 0) {
-    if (stack->prev == NULL) {
-      return NULL;
-    }
-    stack = *stack_ = stack->prev;
-  }
-  return stack->entry[--stack->top];
-}
-
-static StackChunk * markStack = NULL;
-
-void resetMarkStack() {
-  gcSpaceClear();
-  markStack = allocStackChunk();
-}
 
 void gcMark(ObjectHeader * root) {
   *getMark(Nil, chunkFromPtr(Nil), 0)   = GREY_MARK;
   *getMark(root, chunkFromPtr(root), 0) = GREY_MARK;
-  stackPush(&markStack, Nil);
-  stackPush(&markStack, root);
+  markStackPush(Nil);
+  markStackPush(root);
 
-  while(!stackEmpty(markStack)) {
-    ObjectHeader * cur  = stackPop(&markStack);
+  while(!markStackEmpty()) {
+    ObjectHeader * cur  = markStackPop();
     setGen(cur, 1);
     long length         = cur->length;
     ArenaHeader * arena = chunkFromPtr(cur);
@@ -510,7 +439,7 @@ void gcMark(ObjectHeader * root) {
         char * child_mark = getMark(child, chunkFromPtr(child), 0);
         if (*child_mark == WHITE_MARK) {
           *child_mark = GREY_MARK;
-          stackPush(&markStack, child);
+          markStackPush(child);
         }
       }
       *mark = BLACK_MARK;
@@ -525,7 +454,7 @@ void writeBarrier(ObjectHeader * parent, ObjectHeader * child) {
     char * p_mark = getMark(parent, chunkFromPtr(parent), 0);
     if (*p_mark != GREY_MARK) {
       *p_mark = GREY_MARK;
-      stackPush(&markStack, parent);
+      markStackPush(parent);
     }
   }
 }
@@ -632,7 +561,7 @@ void gcSweep(int full_gc) {
           arena = next;
           continue;
         }
-        // Arena is full -> don't sweep on minor collections
+        // Arena almost full -> don't sweep on minor collections
         arena->was_full = 1;
       }
       prev_full = arena;
@@ -646,7 +575,6 @@ void gcSweep(int full_gc) {
 
 
 void initGc() {
-  gcSpaceClear();
   assert(heapInitNumArena > 0);
   for (int i = 0; i < NUM_HEAP_SEGMENTS; i++) {
     Heap.free_arena[i]      = NULL;
@@ -669,7 +597,7 @@ void initGc() {
   buildGcSegmentSizeLookupTable();
 
   Nil = alloc(0);
-  markStack = allocStackChunk();
+  resetMarkStack();
 }
 
 unsigned long getDiff(struct timespec a, struct timespec b) {
@@ -778,7 +706,7 @@ int getNumberOfMarkBits(ArenaHeader * arena) {
 }
 
 void printMemoryStatistics() {
-  unsigned long space  = GC_SPACE_SIZE;
+  unsigned long space  = 0;
   unsigned long usable = 0;
   unsigned long used   = 0;
   for (int i = 0; i < NUM_HEAP_SEGMENTS; i++) {
