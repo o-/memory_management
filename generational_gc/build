@@ -1,2 +1,12 @@
 #!/bin/bash
-gcc -lm -std=gnu99 -Wall -g3 -DDEBUG -UDEBUG_PRINT -o bin/t test.c gc.c  && time ./bin/t
+
+echo "* debug"
+gcc -lm -std=gnu99 -Wall -g3 -DDEBUG -UDEBUG_PRINT -o bin/t_debug test.c gc.c  && time ./bin/t_debug
+
+echo
+echo "* fast"
+gcc -lm -std=gnu99 -Wall -g -O2 -UDEBUG -o bin/t test.c gc.c  && time ./bin/t
+
+echo
+echo "* boehm"
+gcc -lgc -std=gnu99 -Wall -g -O2 -DBOEHM_GC -DDEBUG -o bin/t_boehm test.c && time ./bin/t_boehm

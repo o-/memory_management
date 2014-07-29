@@ -8,6 +8,8 @@
 #include <string.h>
 #include <time.h>
 
+#include "object.h"
+
 #include <sys/mman.h>
 
 ObjectHeader * Nil;
@@ -744,11 +746,13 @@ void doGc(int full_gc) {
   gcSweep();
   clock_gettime(CLOCK_REALTIME, &c);
 
+#ifdef DEBUG
   if (full_gc) {
     printf("full marking took: %lu ms\n", getDiff(a, b) / 1000000);
     printf("sweeping took: %lu ms\n", getDiff(b, c) / 1000000);
     printMemoryStatistics();
   }
+#endif
 }
 
 void teardownGc() {

@@ -1,7 +1,28 @@
-#include "gc.h"
-#include "time.h"
-
+#include <stdlib.h>
 #include <stdio.h>
+
+#include "object.h"
+
+#ifdef BOEHM_GC
+
+#include <gc.h>
+ObjectHeader * alloc(int len) {
+  return GC_MALLOC(sizeof(ObjectHeader) + sizeof(ObjectHeader*) * len);
+}
+#define Nil NULL
+
+void initGc() {
+  GC_INIT();
+}
+void teardownGc() {}
+void writeBarrier(ObjectHeader * a, ObjectHeader * b) {}
+ObjectHeader * Root;
+
+#else
+
+#include "gc.h"
+
+#endif
 
 void releaseSomeNodes(ObjectHeader * o) {
   if (o == Nil) return;
@@ -24,9 +45,9 @@ void allocTree(int depth,
     return;
   }
   int length;
-  if (rand()%100000 == 1) {
+  if (rand()%1000000 == 1) {
     // Create large vectors once in a while
-    length = 1 + rand() % 10000;
+    length = 1 + rand() % 100000;
   } else if (rand()%10000 == 1) {
     length = 1 + rand() % 509;
   } else {
@@ -48,7 +69,7 @@ void allocTree(int depth,
     if (rand() % 20 > 10) {
       alloc(length);
     }
-    if (rand() % 20 > 7) {
+    if (rand() % 20 > 6) {
       allocTree(depth - 1, o, &s[i], round);
     }
   }
