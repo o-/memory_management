@@ -772,6 +772,7 @@ void doGc(int full_gc) {
 }
 
 void teardownGc() {
+  doGc(1);
   for (int i = 0; i < HeapSegments; i++) {
     ArenaHeader * arena = HEAP.free_arena[i];
     while (arena != NULL) {
