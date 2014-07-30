@@ -192,27 +192,27 @@ void gcMark(ObjectHeader * root) {
 
   while(!markStackEmpty()) {
     ObjectHeader * cur = markStackPop();
-    long length         = cur->length;
     char * mark         = getMark(cur);
 #ifdef DEBUG
-    ObjectHeader ** children = getSlots(cur);
+    ObjectHeader ** child = getSlots(cur);
     assert(*mark != WHITE_MARK);
     if (*mark == BLACK_MARK) {
-      for (int i = 0; i < length; i++) {
-        ObjectHeader * child = children[i];
-        assert(*getMark(child) != WHITE_MARK);
+      for (int i = 0; i < cur->length; i++) {
+        assert(*getMark(*child) != WHITE_MARK);
+        child++;
       }
     }
 #endif
     if (*mark != BLACK_MARK) {
-      ObjectHeader ** children = getSlots(cur);
+      long length           = cur->length;
+      ObjectHeader ** child = getSlots(cur);
       for (int i = 0; i < length; i++) {
-        ObjectHeader * child = children[i];
-        char * child_mark = getMark(child);
+        char * child_mark = getMark(*child);
         if (*child_mark == WHITE_MARK) {
           *child_mark = GREY_MARK;
-          markStackPush(child);
+          markStackPush(*child);
         }
+        child++;
       }
       setGen(cur, 1);
       *mark = BLACK_MARK;
@@ -375,12 +375,12 @@ void initGc() {
   resetMarkStack();
 }
 
-unsigned long getDiff(struct timespec a, struct timespec b) {
+unsigned int getDiff(struct timespec a, struct timespec b) {
   if (a.tv_sec == b.tv_sec) {
-    return b.tv_nsec - a.tv_nsec;
+    return (b.tv_nsec - a.tv_nsec) / 1000000;
   } else {
-    return 1000000000L - a.tv_nsec + b.tv_nsec +
-           (1000000000L * (b.tv_sec - a.tv_sec - 1));
+    return (1000000000L - a.tv_nsec + b.tv_nsec +
+            (1000000000L * (b.tv_sec - a.tv_sec - 1))) / 1000000;
   }
 }
 
@@ -428,6 +428,9 @@ void verifyHeap() {
   }
 }
 
+static int gcReportingEnabled = 1;
+static int lastFullGcTime     = 0;
+
 void doGc(int full_gc) {
 #ifdef DEBUG
   verifyHeap();
@@ -451,21 +454,35 @@ void doGc(int full_gc) {
   }
 
   static struct timespec a, b, c;
-  clock_gettime(CLOCK_REALTIME, &a);
+  if (gcReportingEnabled) clock_gettime(CLOCK_REALTIME, &a);
   gcMark(Root);
-  clock_gettime(CLOCK_REALTIME, &b);
+  if (gcReportingEnabled) clock_gettime(CLOCK_REALTIME, &b);
   gcSweep(full_gc);
-  clock_gettime(CLOCK_REALTIME, &c);
+  if (gcReportingEnabled) clock_gettime(CLOCK_REALTIME, &c);
 
 #ifdef DEBUG
   verifyHeap();
-
-  if (full_gc) {
-    printf("full marking took: %lu ms\n", getDiff(a, b) / 1000000);
-    printf("sweeping took: %lu ms\n", getDiff(b, c) / 1000000);
-    printMemoryStatistics();
-  }
 #endif
+
+  if (gcReportingEnabled) {
+#ifdef DEBUG
+    int isStale = 3;
+#else
+    int isStale = 8;
+#endif
+    if (full_gc ||
+        (lastFullGcTime != 0 && (getDiff(a, c) * isStale > lastFullGcTime))) {
+      if (full_gc) {
+        printf("* Full GC:\n");
+        lastFullGcTime = getDiff(a, c);
+      } else {
+        printf("* Stale newspace collection:\n");
+      }
+      printf("marking took: %d ms\n", getDiff(a, b));
+      printf("sweeping took: %d ms\n", getDiff(b, c));
+      printMemoryStatistics();
+    }
+  }
 }
 
 void teardownGc() {
