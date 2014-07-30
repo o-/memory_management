@@ -15,14 +15,14 @@
 
 const int arenaStartAlign = 16;
 
-extern inline char * getBytemap(ArenaHeader * base, int generation);
+extern inline char * getBytemap(ArenaHeader * base);
 extern inline ArenaHeader * chunkFromPtr(void * base);
 extern inline int getObjectBits(ArenaHeader * arena);
 extern inline int getBytemapIndex(void * base, ArenaHeader * arena);
 extern inline unsigned int arenaHeaderOffset(ArenaHeader * base);
 
 extern inline uintptr_t getArenaEnd(ArenaHeader * arena);
-extern inline char * getMark(void * ptr, int generation);
+extern inline char * getMark(void * ptr);
 
 int getNumObjects(ArenaHeader * arena) {
   return arena->num_objects;
@@ -50,15 +50,18 @@ size_t roundUpMemory(size_t required, unsigned int align) {
 size_t calcNumOfObjects(ArenaHeader * arena, int total_size, int object_size) {
   assert(total_size > 1024);
 
-  // Area Prelude:
-  // AreaHeader | bytemap_offset | bytemap_gen0 | bytemap_gen1 | align
+  // Area:
+  // arena_offset | AreaHeader | bytemap | start_align | object_space | padding
+  //
+  // sizeof(bytemap)      = num_objects
+  // sizeof(object_space) = num_objects * object_size
 
   int header = sizeof(ArenaHeader) + arenaHeaderOffset(arena) + arenaStartAlign;
 
-  int num_objects = (total_size - header) / (2 + object_size);
+  int num_objects = (total_size - header) / (1 + object_size);
 
   assert(num_objects > 0);
-  assert(total_size >= header + (2 * num_objects) +
+  assert(total_size >= header + num_objects +
                        (num_objects * object_size));
 
   // Ensure The bytemaps have a word aligned size
@@ -158,7 +161,7 @@ ArenaHeader * allocateAlignedArena(int segment) {
                                               heapSegmentNodeSize(segment));
   chunk->num_objects       = num_objects;
 
-  chunk->first             = &getBytemap(chunk, 1)[num_objects];
+  chunk->first             = &getBytemap(chunk)[num_objects];
 
   uintptr_t f = (uintptr_t)chunk->first;
   if (f % arenaStartAlign != 0) {
@@ -175,7 +178,7 @@ ArenaHeader * allocateAlignedArena(int segment) {
          (uintptr_t)chunk->raw_base + chunk->raw_size);
 
   // Zero bytemap
-  memset(getBytemap(chunk,0), 0, 2*num_objects);
+  memset(getBytemap(chunk), 0, num_objects);
 
   return chunk;
 }
@@ -196,7 +199,7 @@ ArenaHeader * allocateAlignedChunk(int segment, int length) {
   arena->object_size       = object_size;
   arena->object_bits       = GC_ARENA_ALIGN_BITS;
   arena->free_list         = NULL;
-  arena->first             = &getBytemap(arena, 1)[1];
+  arena->first             = &getBytemap(arena)[1];
   uintptr_t f = (uintptr_t)arena->first;
   if (f % arenaStartAlign != 0) {
     arena->first = (void*)(f + f % arenaStartAlign);
@@ -204,7 +207,7 @@ ArenaHeader * allocateAlignedChunk(int segment, int length) {
   arena->free              = (void*)getArenaEnd(arena);
 
   // Zero bytemap
-  memset(getBytemap(arena, 0), 0, 2);
+  memset(getBytemap(arena), 0, 1);
 
   return arena;
 }

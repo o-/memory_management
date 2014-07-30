@@ -179,8 +179,8 @@ ObjectHeader * alloc(size_t length) {
 
 
 void gcMark(ObjectHeader * root) {
-  *getMark(Nil, 0)  = GREY_MARK;
-  *getMark(root, 0) = GREY_MARK;
+  *getMark(Nil)  = GREY_MARK;
+  *getMark(root) = GREY_MARK;
   markStackPush(Nil);
   markStackPush(root);
 
@@ -188,14 +188,14 @@ void gcMark(ObjectHeader * root) {
     ObjectHeader * cur  = markStackPop();
     setGen(cur, 1);
     long length         = cur->length;
-    char * mark         = getMark(cur, 0);
+    char * mark         = getMark(cur);
 #ifdef DEBUG
     ObjectHeader ** children = getSlots(cur);
     assert(*mark != WHITE_MARK);
     if (*mark == BLACK_MARK) {
       for (int i = 0; i < length; i++) {
         ObjectHeader * child = children[i];
-        assert(*getMark(child, 0) != WHITE_MARK);
+        assert(*getMark(child) != WHITE_MARK);
       }
     }
 #endif
@@ -203,7 +203,7 @@ void gcMark(ObjectHeader * root) {
       ObjectHeader ** children        = getSlots(cur);
       for (int i = 0; i < length; i++) {
         ObjectHeader * child = children[i];
-        char * child_mark = getMark(child, 0);
+        char * child_mark = getMark(child);
         if (*child_mark == WHITE_MARK) {
           *child_mark = GREY_MARK;
           markStackPush(child);
@@ -218,7 +218,7 @@ void gcMark(ObjectHeader * root) {
 
 void writeBarrier(ObjectHeader * parent, ObjectHeader * child) {
   if (parent->old > child->old) {
-    char * p_mark = getMark(parent, 0);
+    char * p_mark = getMark(parent);
     if (*p_mark != GREY_MARK) {
       *p_mark = GREY_MARK;
       markStackPush(parent);
@@ -236,18 +236,12 @@ void sweepArena(ArenaHeader * arena) {
                              (uintptr_t)arena->first);
 
   FreeObject * free_list = NULL;
-  for (int i = 0;
-      i < arena->num_objects && (uintptr_t)finger < (uintptr_t)arena->free;
-      i++) {
-    char * mark     = &getBytemap(arena, 0)[i];
-    char * old_mark = &getBytemap(arena, 1)[i];
-    assert((void*)mark < arena->first && (void*)old_mark < arena->first);
+  char * mark = getBytemap(arena);
+  while ((uintptr_t)finger < (uintptr_t)arena->free) {
+    assert((void*)mark < arena->first);
     assert(*mark != GREY_MARK);
 
     if (*mark == WHITE_MARK) {
-      if (!*old_mark == WHITE_MARK) {
-        *old_mark = WHITE_MARK;
-      }
 #ifdef DEBUG
       // Zap slots
       ObjectHeader * o  = (ObjectHeader*)finger;
@@ -269,12 +263,10 @@ void sweepArena(ArenaHeader * arena) {
       }
     } else {
       assert(*mark == BLACK_MARK);
-      if (*old_mark == WHITE_MARK) {
-        *old_mark = BLACK_MARK;
-      }
       arena->num_alloc++;
     }
     finger += getObjectSize(arena);
+    mark++;
   }
   if (free_list != NULL) {
     free_list->next = NULL;
@@ -387,14 +379,14 @@ void doGc(int full_gc) {
       while (arena != NULL) {
         ArenaHeader * next = arena->next;
         arena->was_full = 0;
-        memset(getBytemap(arena,0), 0, 2*arena->num_objects);
+        memset(getBytemap(arena), 0, arena->num_objects);
         arena = next;
       }
       arena = Heap.full_arena[i];
       while (arena != NULL) {
         ArenaHeader * next = arena->next;
         arena->was_full = 0;
-        memset(getBytemap(arena,0), 0, 2*arena->num_objects);
+        memset(getBytemap(arena), 0, arena->num_objects);
         arena = next;
       }
     }
@@ -442,7 +434,7 @@ void inspectArena(ArenaHeader * arena) {
   printf("  object_size  : %d\n", getObjectSize(arena));
   printf("  num_objects  : %d\n", getNumObjects(arena));
   printf("  mark_bits    : [");
-  char * bm    = getBytemap(arena, 0);
+  char * bm    = getBytemap(arena);
   int    count = 0;
   int    col   = 0;
   int    total = 0;
@@ -466,7 +458,7 @@ void inspectArena(ArenaHeader * arena) {
 }
 
 int getNumberOfMarkBits(ArenaHeader * arena) {
-  char * bm    = getBytemap(arena, 0);
+  char * bm    = getBytemap(arena);
   int    count = 0;
   for (int i = 0; i < getNumObjects(arena); i++) {
     if (bm[i] != 0) {

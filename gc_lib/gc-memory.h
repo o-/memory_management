@@ -33,8 +33,8 @@ inline uintptr_t getArenaEnd(ArenaHeader * arena) {
   return (uintptr_t)arena->first + (getObjectSize(arena)*getNumObjects(arena));
 }
 
-inline char * getBytemap(ArenaHeader * base, int generation) {
-  return ((char*)(base + 1)) + (base->num_objects * generation);
+inline char * getBytemap(ArenaHeader * base) {
+  return (char*)(base + 1);
 }
 
 inline ArenaHeader * chunkFromPtr(void * base) {
@@ -50,9 +50,9 @@ inline int getBytemapIndex(void * base, ArenaHeader * arena) {
   return ((uintptr_t)base - (uintptr_t)arena->first) >> getObjectBits(arena);
 }
 
-inline char * getMark(void * ptr, int generation) {
+inline char * getMark(void * ptr) {
   ArenaHeader * arena = chunkFromPtr(ptr);
-  char *        bm    = getBytemap(arena, generation);
+  char *        bm    = getBytemap(arena);
   int           idx   = getBytemapIndex(ptr, arena);
   return bm + idx;
 }
