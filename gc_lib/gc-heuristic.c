@@ -60,3 +60,15 @@ int  isArenaConsideredFull(ArenaHeader * arena) {
                      (float)getNumObjects(arena);
   return population >= arenaFullPercentage;
 }
+
+int  isSweepingCandidate(ArenaHeader * arena) {
+  return arena->segment >= NUM_FIXED_HEAP_SEGMENTS ||
+         !arena->was_full;
+}
+
+void sweepingDone(ArenaHeader * arena){
+  if (isArenaConsideredFull(arena)) {
+    arena->was_full = 1;
+  }
+}
+

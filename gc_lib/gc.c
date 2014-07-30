@@ -290,6 +290,8 @@ void gcSweep(int full_gc) {
     ArenaHeader * last_free = NULL;
     while (arena != NULL) {
       sweepArena(arena);
+      sweepingDone(arena);
+      // Release empty arenas
       if (arena->num_alloc == 0) {
         if (last_free != NULL) {
           last_free->next = arena->next;
@@ -307,8 +309,9 @@ void gcSweep(int full_gc) {
     arena = Heap.full_arena[i];
     ArenaHeader * prev_full = NULL;
     while (arena != NULL) {
-      if (full_gc || !arena->was_full || i >= NUM_FIXED_HEAP_SEGMENTS) {
+      if (full_gc || isSweepingCandidate(arena)) {
         sweepArena(arena);
+        sweepingDone(arena);
         // Move arenas with empty space to the free_arena list
         if (!isArenaConsideredFull(arena)) {
           if (last_free != NULL) {
@@ -327,8 +330,6 @@ void gcSweep(int full_gc) {
           arena = next;
           continue;
         }
-        // Arena almost full -> don't sweep on minor collections
-        arena->was_full = 1;
       }
       prev_full = arena;
       arena = arena->next;
@@ -377,17 +378,13 @@ void doGc(int full_gc) {
     for (int i = 0; i < NUM_HEAP_SEGMENTS; i++) {
       ArenaHeader * arena = Heap.free_arena[i];
       while (arena != NULL) {
-        ArenaHeader * next = arena->next;
-        arena->was_full = 0;
-        memset(getBytemap(arena), 0, arena->num_objects);
-        arena = next;
+        clearAllMarks(arena);
+        arena = arena->next;
       }
       arena = Heap.full_arena[i];
       while (arena != NULL) {
-        ArenaHeader * next = arena->next;
-        arena->was_full = 0;
-        memset(getBytemap(arena), 0, arena->num_objects);
-        arena = next;
+        clearAllMarks(arena);
+        arena = arena->next;
       }
     }
   }
@@ -475,19 +472,17 @@ void printMemoryStatistics() {
   for (int i = 0; i < NUM_HEAP_SEGMENTS; i++) {
     ArenaHeader * arena = Heap.free_arena[i];
     while (arena != NULL) {
-      ArenaHeader * next = arena->next;
       space  += arena->raw_size;
       usable += getNumObjects(arena) * getObjectSize(arena);
       used   += arena->num_alloc * getObjectSize(arena);
-      arena = next;
+      arena   = arena->next;
     }
     arena = Heap.full_arena[i];
     while (arena != NULL) {
-      ArenaHeader * next = arena->next;
       space  += arena->raw_size;
       usable += getNumObjects(arena) * getObjectSize(arena);
       used   += arena->num_alloc * getObjectSize(arena);
-      arena = next;
+      arena   = arena->next;
     }
   }
   printf("Reserverd: %lu mb | Usable: %lu mb | Used: %lu mb\n",

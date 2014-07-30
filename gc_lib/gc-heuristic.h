@@ -11,5 +11,7 @@ void growHeap(HeapStruct * heap, int segment);
 void tryShrinkHeap(HeapStruct * heap, int segment);
 int  checkReleaseVariableArenas();
 int  isArenaConsideredFull(ArenaHeader * arena);
+int  isSweepingCandidate(ArenaHeader * arena);
+void sweepingDone(ArenaHeader * arena);
 
 #endif

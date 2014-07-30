@@ -1,6 +1,8 @@
 #ifndef H_GC_MEMORY
 #define H_GC_MEMORY
 
+#include <string.h>
+
 #include "gc.h"
 #include "gc-declarations.h"
 
@@ -55,6 +57,11 @@ inline char * getMark(void * ptr) {
   char *        bm    = getBytemap(arena);
   int           idx   = getBytemapIndex(ptr, arena);
   return bm + idx;
+}
+
+inline void clearAllMarks(ArenaHeader * arena) {
+  memset(getBytemap(arena), 0, arena->num_objects);
+  arena->was_full = 0;
 }
 
 #endif

@@ -20,6 +20,7 @@ extern inline ArenaHeader * chunkFromPtr(void * base);
 extern inline int getObjectBits(ArenaHeader * arena);
 extern inline int getBytemapIndex(void * base, ArenaHeader * arena);
 extern inline unsigned int arenaHeaderOffset(ArenaHeader * base);
+extern inline void clearAllMarks(ArenaHeader * arena);
 
 extern inline uintptr_t getArenaEnd(ArenaHeader * arena);
 extern inline char * getMark(void * ptr);
@@ -177,8 +178,7 @@ ArenaHeader * allocateAlignedArena(int segment) {
   assert(f + (chunk->num_objects * chunk->object_size) <=
          (uintptr_t)chunk->raw_base + chunk->raw_size);
 
-  // Zero bytemap
-  memset(getBytemap(chunk), 0, num_objects);
+  clearAllMarks(chunk);
 
   return chunk;
 }
@@ -206,8 +206,7 @@ ArenaHeader * allocateAlignedChunk(int segment, int length) {
   }
   arena->free              = (void*)getArenaEnd(arena);
 
-  // Zero bytemap
-  memset(getBytemap(arena), 0, 1);
+  clearAllMarks(arena);
 
   return arena;
 }
