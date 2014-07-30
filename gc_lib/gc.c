@@ -239,7 +239,6 @@ void nextObject(ObjectHeader ** o, ArenaHeader * arena) {
 }
 
 void sweepArena(ArenaHeader * arena) {
-  ObjectHeader * finger = arena->first;
   arena->free_list = NULL;
   arena->num_alloc = 0;
   float bump_space = (float)((uintptr_t)getArenaEnd(arena) -
@@ -247,8 +246,11 @@ void sweepArena(ArenaHeader * arena) {
                      (float)((uintptr_t)getArenaEnd(arena) -
                              (uintptr_t)arena->first);
 
-  FreeObject * free_list = NULL;
-  char * mark = getBytemap(arena);
+  FreeObject * free_list    = NULL;
+  char * mark               = getBytemap(arena);
+  ObjectHeader * finger     = arena->first;
+  ObjectHeader * last_black = finger;
+
   while ((uintptr_t)finger < (uintptr_t)arena->free) {
     assert(getMark(finger) == mark);
     assert((void*)mark < arena->first);
@@ -278,6 +280,7 @@ void sweepArena(ArenaHeader * arena) {
     } else {
       assert(*mark == BLACK_MARK);
       assert(finger->old == 1);
+      last_black = finger;
       arena->num_alloc++;
     }
     nextObject(&finger, arena);
@@ -285,6 +288,12 @@ void sweepArena(ArenaHeader * arena) {
   }
   if (free_list != NULL) {
     free_list->next = NULL;
+  }
+  nextObject(&last_black, arena);
+  // If there happens to be an empty area at the end of the arena lets
+  // reenable bump allocation for that part.
+  if (arena->free > (void*)last_black) {
+    arena->free = last_black;
   }
 }
 
