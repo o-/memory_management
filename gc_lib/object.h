@@ -13,4 +13,14 @@ inline ObjectHeader ** getSlots(ObjectHeader * o) {
   return (ObjectHeader**)(o+1);
 }
 
+inline ObjectHeader * getSlot(ObjectHeader * o, int i) {
+  return getSlots(o)[i];
+}
+
+void writeBarrier(ObjectHeader * o, ObjectHeader * c);
+inline void setSlot(ObjectHeader * o, int i, ObjectHeader * c) {
+  getSlots(o)[i] = c;
+  writeBarrier(o, c);
+}
+
 #endif

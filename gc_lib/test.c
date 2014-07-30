@@ -27,22 +27,21 @@ ObjectHeader * Root;
 
 void releaseSomeNodes(ObjectHeader * o) {
   if (o == Nil) return;
-  ObjectHeader ** s = getSlots(o);
   for (int i = 1; i < o->length; i++) {
-    if (s[i] != Nil && rand()%10 == 1) {
-      s[i] = Nil;
+    if (getSlot(o, i) != Nil && rand()%10 == 1) {
+      setSlot(o, i, Nil);
     } else {
-      releaseSomeNodes(s[i]);
+      releaseSomeNodes(getSlot(o, i));
     }
   }
 }
 
 void allocTree(int depth,
                ObjectHeader * parent,
-               ObjectHeader ** child,
+               int child_idx,
                long round) {
   if (depth == 0) {
-    *child = Nil;
+    setSlot(parent, child_idx, Nil);
     return;
   }
   int length;
@@ -55,23 +54,19 @@ void allocTree(int depth,
     length = 1 + rand() % 50;
   }
 
-  ObjectHeader * o = NULL;
-  *child = alloc(length);
-  o = *child;
-  writeBarrier(parent, o);
+  ObjectHeader * o = alloc(length);
+  setSlot(parent, child_idx, o);
 
   o->some_header_bits = round;
-  ObjectHeader ** s = getSlots(o);
   // Keep a backpointer in slot 0
-  s[0] = parent;
-  writeBarrier(o, parent);
+  setSlot(o, 0, parent);
 
   for (int i = 1; i < length; i++) {
     if (rand() % 20 > 10) {
       alloc(length);
     }
     if (rand() % 20 > 6) {
-      allocTree(depth - 1, o, &s[i], round);
+      allocTree(depth - 1, o, i, round);
     }
   }
 }
@@ -81,12 +76,11 @@ void verifyTree(ObjectHeader * node, ObjectHeader * parent, long round) {
 
   assert(node->some_header_bits == round);
 
-  ObjectHeader **   s = getSlots(node);
   // Check the backpointer is still in place
-  assert(s[0] == parent);
+  assert(getSlot(node, 0) == parent);
 
   for (int i = 1; i < node->length; i++) {
-    verifyTree(s[i], node, round);
+    verifyTree(getSlot(node, i), node, round);
   }
 }
 
@@ -99,18 +93,17 @@ int main(){
   int depth  = 5;
 
   Root  = alloc(rounds);
-  ObjectHeader ** roots = getSlots(Root);
   for (int i = 0; i < rounds; i++) {
-    roots[i] = Nil;
+    setSlot(Root, i, Nil);
   }
 
   for (int i = 0; i < rounds; i++) {
-    allocTree(depth, Nil, &roots[i], i);
+    allocTree(depth, Root, i, i);
 
-    releaseSomeNodes(roots[i]);
+    releaseSomeNodes(getSlot(Root, i));
 
     for (int j = 0; j < i; j++) {
-      verifyTree(roots[j], Nil, j);
+      verifyTree(getSlot(Root, j), Root, j);
     }
 
     printf("---------\n");

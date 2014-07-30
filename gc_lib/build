@@ -10,3 +10,7 @@ gcc -lm -std=gnu99 -Wall -g -O2 -UDEBUG -o bin/t *.c && time ./bin/t
 echo
 echo "* boehm"
 gcc -lgc -std=gnu99 -Wall -g -O2 -DBOEHM_GC -DDEBUG -o bin/t_boehm test.c && time ./bin/t_boehm
+
+echo
+echo "* heap verify"
+gcc -lm -std=gnu99 -Wall -g -O2 -DVERIFY_HEAP -DDEBUG -o bin/t *.c && time ./bin/t

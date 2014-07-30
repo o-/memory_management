@@ -6,8 +6,6 @@
 
 #include "object.h"
 
-#define GC_ZAP_POINTER ((ObjectHeader*)0xdeadbeef)
-
 extern ObjectHeader * Nil;
 extern ObjectHeader * Root;
 

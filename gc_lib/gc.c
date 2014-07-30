@@ -46,7 +46,13 @@ void setGen(ObjectHeader * o, int gen) {
   }
 }
 
+#ifdef DEBUG
+static ObjectHeader * kGcZapPointer = ((ObjectHeader*)0xdeadbeef);
+#endif
+
 extern inline ObjectHeader ** getSlots(ObjectHeader * o);
+extern inline ObjectHeader * getSlot(ObjectHeader * o, int i);
+extern inline void setSlot(ObjectHeader * o, int i, ObjectHeader * c);
 
 ObjectHeader * allocFromArena(ArenaHeader * arena) {
   ObjectHeader * o = NULL;
@@ -185,8 +191,7 @@ void gcMark(ObjectHeader * root) {
   markStackPush(root);
 
   while(!markStackEmpty()) {
-    ObjectHeader * cur  = markStackPop();
-    setGen(cur, 1);
+    ObjectHeader * cur = markStackPop();
     long length         = cur->length;
     char * mark         = getMark(cur);
 #ifdef DEBUG
@@ -209,6 +214,7 @@ void gcMark(ObjectHeader * root) {
           markStackPush(child);
         }
       }
+      setGen(cur, 1);
       *mark = BLACK_MARK;
     }
   }
@@ -226,8 +232,12 @@ void writeBarrier(ObjectHeader * parent, ObjectHeader * child) {
   }
 }
 
+void nextObject(ObjectHeader ** o, ArenaHeader * arena) {
+  *o = (ObjectHeader*)(((char*)(*o)) + arena->object_size);
+}
+
 void sweepArena(ArenaHeader * arena) {
-  char * finger = arena->first;
+  ObjectHeader * finger = arena->first;
   arena->free_list = NULL;
   arena->num_alloc = 0;
   float bump_space = (float)((uintptr_t)getArenaEnd(arena) -
@@ -238,7 +248,9 @@ void sweepArena(ArenaHeader * arena) {
   FreeObject * free_list = NULL;
   char * mark = getBytemap(arena);
   while ((uintptr_t)finger < (uintptr_t)arena->free) {
+    assert(getMark(finger) == mark);
     assert((void*)mark < arena->first);
+    assert((void*)mark >= (void*)(arena+1));
     assert(*mark != GREY_MARK);
 
     if (*mark == WHITE_MARK) {
@@ -247,7 +259,7 @@ void sweepArena(ArenaHeader * arena) {
       ObjectHeader * o  = (ObjectHeader*)finger;
       ObjectHeader ** s = getSlots(o);
       for (int i = 0; i < o->length; i++) {
-        s[i] = GC_ZAP_POINTER;
+        s[i] = kGcZapPointer;
       }
 #endif
       // Do not create freelist for an almost empty area.
@@ -263,9 +275,10 @@ void sweepArena(ArenaHeader * arena) {
       }
     } else {
       assert(*mark == BLACK_MARK);
+      assert(finger->old == 1);
       arena->num_alloc++;
     }
-    finger += getObjectSize(arena);
+    nextObject(&finger, arena);
     mark++;
   }
   if (free_list != NULL) {
@@ -371,7 +384,55 @@ unsigned long getDiff(struct timespec a, struct timespec b) {
   }
 }
 
+void verifyArena(ArenaHeader * arena) {
+#ifdef VERIFY_HEAP
+  ObjectHeader * o    = arena->first;
+  char *         mark = getBytemap(arena);
+  while((uintptr_t)o < getArenaEnd(arena) &&
+        (uintptr_t)o < (uintptr_t)arena->free) {
+    assert(getMark(o) == mark);
+    if (*mark != WHITE_MARK) {
+      assert(o->old == 1);
+      assert(o->length >= 0);
+      ObjectHeader ** children = getSlots(o);
+      for (int i = 0; i < o->length; i++) {
+        ObjectHeader * child = children[i];
+        assert(child != kGcZapPointer);
+        ArenaHeader * child_arena = chunkFromPtr(child);
+        assert(child_arena->num_alloc > 0);
+        if (*mark == BLACK_MARK) {
+          assert(getMark(child) != WHITE_MARK);
+          assert(child->length >= 0);
+        }
+        child++;
+      }
+    }
+    nextObject(&o, arena);
+    mark++;
+  }
+#endif
+}
+
+void verifyHeap() {
+  for (int i = 0; i < NUM_HEAP_SEGMENTS; i++) {
+    ArenaHeader * arena = Heap.free_arena[i];
+    while (arena != NULL) {
+      verifyArena(arena);
+      arena = arena->next;
+    }
+    arena = Heap.full_arena[i];
+    while (arena != NULL) {
+      verifyArena(arena);
+      arena = arena->next;
+    }
+  }
+}
+
 void doGc(int full_gc) {
+#ifdef DEBUG
+  verifyHeap();
+#endif
+
   if (full_gc) {
     resetMarkStack();
 
@@ -397,6 +458,8 @@ void doGc(int full_gc) {
   clock_gettime(CLOCK_REALTIME, &c);
 
 #ifdef DEBUG
+  verifyHeap();
+
   if (full_gc) {
     printf("full marking took: %lu ms\n", getDiff(a, b) / 1000000);
     printf("sweeping took: %lu ms\n", getDiff(b, c) / 1000000);

@@ -14,8 +14,8 @@
 
 #define MAX_FIXED_NODE_SIZE (SMALLEST_SEGMENT_SIZE<<(NUM_FIXED_HEAP_SEGMENTS-1))
 
-#define WHITE_MARK 0
-#define GREY_MARK  1
-#define BLACK_MARK 2
+#define WHITE_MARK ((char)0)
+#define GREY_MARK  ((char)1)
+#define BLACK_MARK ((char)2)
 
 #endif
