@@ -191,6 +191,7 @@ ArenaHeader * allocateAlignedArena(int segment) {
   assert(segment < NUM_FIXED_HEAP_SEGMENTS);
 
   chunk = allocateAligned(GC_ARENA_SIZE);
+  if (chunk == NULL) return NULL;
 
   chunk->segment           = segment;
   int num_objects          = calcNumOfObjects(chunk,
@@ -228,6 +229,7 @@ ArenaHeader * allocateAlignedChunk(int segment, int length) {
                arenaStartAlign;
 
   ArenaHeader * arena = allocateAligned(object_size + header);
+  if (arena == NULL) return NULL;
 
   arena->num_alloc         = 1;
   arena->segment           = segment;

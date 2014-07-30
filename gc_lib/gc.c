@@ -25,6 +25,14 @@ static int gcReportingEnabled = 0;
 
 static HeapStruct Heap;
 
+void fatalError(const char * msg) {
+  puts(msg);
+#ifdef DEBUG
+  __asm("int3");
+#endif
+  exit(1);
+}
+
 int objectSizeToLength(int size) {
   return (size - sizeof(ObjectHeader)) / SLOT_SIZE;
 }
@@ -75,6 +83,8 @@ ObjectHeader * allocFromArena(ArenaHeader * arena) {
 
 ArenaHeader * newArena(int segment) {
   ArenaHeader * new_arena = allocateAlignedArena(segment);
+  if (new_arena == NULL) return NULL;
+
   ArenaHeader * first     = Heap.free_arena[segment];
   new_arena->next = first;
   Heap.free_arena[segment] = new_arena;
@@ -86,6 +96,9 @@ ObjectHeader * allocFromSegment(int segment,
                                 int new_arena) {
   if (segment >= NUM_FIXED_HEAP_SEGMENTS) {
     ArenaHeader * arena = allocateAlignedChunk(segment, length);
+    if (arena == NULL) {
+      return NULL;
+    }
 
     ArenaHeader * first     = Heap.full_arena[segment];
     arena->next = first;
@@ -162,7 +175,9 @@ ObjectHeader * alloc(size_t length) {
     }
   }
 
-  if (o == NULL) return NULL;
+  if (o == NULL) {
+    fatalError("Out of memory");
+  }
 
   setGen(o, 0);
   o->length = length;

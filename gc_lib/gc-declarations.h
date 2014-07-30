@@ -30,4 +30,6 @@ struct FreeObject {
   FreeObject * next;
 };
 
+void fatalError(const char * msg);
+
 #endif

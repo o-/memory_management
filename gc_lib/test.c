@@ -49,7 +49,7 @@ void allocTree(int depth,
     // Create large vectors once in a while
     length = 1 + rand() % 100000;
   } else if (rand()%10000 == 1) {
-    length = 1 + rand() % 509;
+    length = 1 + rand() % 600;
   } else {
     length = 1 + rand() % 50;
   }

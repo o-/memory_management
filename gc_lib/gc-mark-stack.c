@@ -1,6 +1,7 @@
 #include <stdlib.h>
 
 #include "gc-mark-stack.h"
+#include "gc-declarations.h"
 
 #include "debugging.h"
 
@@ -27,8 +28,7 @@ void * markStackSpaceMalloc(size_t size) {
   void * p = GcStackSpace.free;
   GcStackSpace.alloc += size;
   if (GcStackSpace.alloc > __GC_STACK_SPACE_SIZE) {
-    puts("GC panic: no temp mem available");
-    exit(-1);
+    fatalError("GC panic: no temp mem available");
   }
   GcStackSpace.free += size;
   return p;
