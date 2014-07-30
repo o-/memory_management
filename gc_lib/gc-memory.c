@@ -83,6 +83,26 @@ uint32_t hash(uint32_t a) {
   return a;
 }
 
+void buildGcSegmentSizeLookupTable() {
+  // Build the lookup tables
+  int segment = 0;
+  for (int i = 0; i < __GC_SEGMENT_SIZE_LOOKUP_TABLE_SIZE; i++) {
+    int size = objectLengthToSize(i);
+    if (size <= MAX_FIXED_NODE_SIZE) {
+      if (heapSegmentNodeSize(segment) < size) {
+        segment++;
+      }
+      assert(segment == 0 || heapSegmentNodeSize(segment-1) < size);
+      assert(heapSegmentNodeSize(segment) >= size);
+      assert(segment < NUM_FIXED_HEAP_SEGMENTS);
+    } else {
+      segment  = VARIABLE_LARGE_NODE_SEGMENT;
+      assert(size > MAX_FIXED_NODE_SIZE);
+    }
+    __gcSegmentSizeLookupTable[i] = segment;
+  }
+}
+
 ArenaHeader * allocateAligned(int variable_length) {
   assert(1<<GC_ARENA_ALIGN_BITS == GC_ARENA_ALIGNMENT);
   assert(GC_ARENA_ALIGNMENT % sysconf(_SC_PAGESIZE) == 0);

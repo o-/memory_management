@@ -14,7 +14,6 @@
 #include "gc-const.h"
 #include "gc-declarations.h"
 #include "gc-heap.h"
-#include "gc-utils.h"
 #include "gc-heuristic.h"
 #include "gc-mark-stack.h"
 #include "gc-memory.h"
@@ -117,6 +116,7 @@ ObjectHeader * allocFromSegment(int segment,
 }
 
 void doGc(int full);
+extern inline int getFixedSegmentForLength(int length);
 
 ObjectHeader * alloc(size_t length) {
   assert(length >= 0);

@@ -64,4 +64,16 @@ inline void clearAllMarks(ArenaHeader * arena) {
   arena->was_full = 0;
 }
 
+void buildGcSegmentSizeLookupTable();
+
+#define __GC_SEGMENT_SIZE_LOOKUP_TABLE_SIZE \
+  (LARGEST_FIXED_SEGMENT_SIZE/SLOT_SIZE)
+int __gcSegmentSizeLookupTable[__GC_SEGMENT_SIZE_LOOKUP_TABLE_SIZE];
+
+inline static int getFixedSegmentForLength(int length) {
+  if (length >= __GC_SEGMENT_SIZE_LOOKUP_TABLE_SIZE) return -1;
+  return __gcSegmentSizeLookupTable[length];
+}
+
+
 #endif
