@@ -71,7 +71,9 @@ size_t calcNumOfObjects(ArenaHeader * arena, int total_size, int object_size) {
   return (size_t)num_objects;
 }
 
+#ifndef USE_POSIX_MEMALIGN
 static uintptr_t hint = 1;
+#endif
 
 uint32_t hash(uint32_t a) {
   a = (a+0x7ed55d16) + (a<<12);
@@ -139,8 +141,6 @@ ArenaHeader * allocateAligned(int variable_length) {
   if (reserved == NULL) {
     return NULL;
   }
-
-  //printf("%p -> %p\n", hint, reserved);
 
   // Determine next chunk aligned base address
   uintptr_t base          = (uintptr_t)reserved;
@@ -250,7 +250,7 @@ ArenaHeader * allocateAlignedChunk(int segment, int length) {
 
 void freeArena(ArenaHeader * arena) {
 #ifdef USE_POSIX_MEMALIGN
-  free(arena);
+  free(arena->raw_base);
 #else
   munmap(arena->raw_base, arena->raw_size);
 #endif
