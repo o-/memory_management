@@ -19,7 +19,7 @@ extern inline char * getBytemap(ArenaHeader * base);
 extern inline ArenaHeader * chunkFromPtr(void * base);
 extern inline int getObjectBits(ArenaHeader * arena);
 extern inline int getBytemapIndex(void * base, ArenaHeader * arena);
-extern inline unsigned int arenaHeaderOffset(ArenaHeader * base);
+extern inline unsigned int arenaHeaderOffset(void * base);
 extern inline void clearAllMarks(ArenaHeader * arena);
 
 extern inline uintptr_t getArenaEnd(ArenaHeader * arena);

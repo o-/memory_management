@@ -13,21 +13,22 @@
 #define GC_ARENA_SIZE       GC_ARENA_ALIGNMENT
 #define GC_ARENA_ALIGN_MASK (GC_ARENA_ALIGNMENT-1)
 
-#define GC_ARENA_MAX_BYTEMAP_OFFSET 2000
+#define GC_ARENA_MAX_BYTEMAP_OFFSET  0x800
+#define GC_ARENA_BYTEMAP_OFFSET_MASK 0x7f0
 
 ArenaHeader * allocateAlignedArena(int segment);
 ArenaHeader * allocateAlignedChunk(int segment, int length);
 
 void freeArena(ArenaHeader * arena);
 
-// Offset the beginning of the area to the aligned base address for better
-// cache efficiency
-inline unsigned int arenaHeaderOffset(ArenaHeader * base) {
+// Use the least significant non-zero bits (mod sizeof(void*)) of the aligned
+// base address as an offset for the beginning of the arena to improve caching.
+inline unsigned int arenaHeaderOffset(void * base) {
   unsigned int offset = (((uintptr_t)base >> GC_ARENA_ALIGN_BITS) &
-                        (GC_ARENA_MAX_BYTEMAP_OFFSET - 1));
-  // Ensure offset is word aligned
-  offset &= ~(sizeof(void*) - 1);
+                        GC_ARENA_BYTEMAP_OFFSET_MASK);
+  assert(GC_ARENA_MAX_BYTEMAP_OFFSET > GC_ARENA_BYTEMAP_OFFSET_MASK);
   assert(offset >= 0 && offset < GC_ARENA_MAX_BYTEMAP_OFFSET);
+  assert(offset % sizeof(void*) == 0);
   return offset;
 }
 
