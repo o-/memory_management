@@ -71,6 +71,18 @@ size_t calcNumOfObjects(ArenaHeader * arena, int total_size, int object_size) {
   return (size_t)num_objects;
 }
 
+static uintptr_t hint = 1;
+
+uint32_t hash(uint32_t a) {
+  a = (a+0x7ed55d16) + (a<<12);
+  a = (a^0xc761c23c) ^ (a>>19);
+  a = (a+0x165667b1) + (a<<5);
+  a = (a+0xd3a2646c) ^ (a<<9);
+  a = (a+0xfd7046c5) + (a<<3);
+  a = (a^0xb55a4f09) ^ (a>>16);
+  return a;
+}
+
 ArenaHeader * allocateAligned(int variable_length) {
   assert(1<<GC_ARENA_ALIGN_BITS == GC_ARENA_ALIGNMENT);
   assert(GC_ARENA_ALIGNMENT % sysconf(_SC_PAGESIZE) == 0);
@@ -95,8 +107,10 @@ ArenaHeader * allocateAligned(int variable_length) {
   size_t request_length = roundUpMemory(aligned_length + GC_ARENA_ALIGNMENT,
                                         OSPageAlignment);
 
+  hint = ((uintptr_t)hash(hint)) << 14;
+
   // Reserve virtual memory
-  void * reserved = mmap(NULL,
+  void * reserved = mmap((void*)hint,
                          request_length,
                          PROT_NONE,
                          MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE,
@@ -105,6 +119,8 @@ ArenaHeader * allocateAligned(int variable_length) {
   if (reserved == NULL) {
     return NULL;
   }
+
+  //printf("%p -> %p\n", hint, reserved);
 
   // Determine next chunk aligned base address
   uintptr_t base          = (uintptr_t)reserved;
