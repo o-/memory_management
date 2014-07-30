@@ -21,6 +21,8 @@
 ObjectHeader * Nil;
 ObjectHeader * Root;
 
+static int gcReportingEnabled = 0;
+
 static HeapStruct Heap;
 
 int objectSizeToLength(int size) {
@@ -401,9 +403,9 @@ void verifyArena(ArenaHeader * arena) {
         ArenaHeader * child_arena = chunkFromPtr(child);
         assert(child_arena->num_alloc > 0);
         if (*mark == BLACK_MARK) {
-          assert(getMark(child) != WHITE_MARK);
-          assert(child->length >= 0);
+          assert(*getMark(child) != WHITE_MARK);
         }
+        assert(child->length >= 0);
         child++;
       }
     }
@@ -428,7 +430,6 @@ void verifyHeap() {
   }
 }
 
-static int gcReportingEnabled = 1;
 static int lastFullGcTime     = 0;
 
 void doGc(int full_gc) {
