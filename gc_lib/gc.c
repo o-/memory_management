@@ -200,7 +200,7 @@ void gcMark(ObjectHeader * root) {
     }
 #endif
     if (*mark != BLACK_MARK) {
-      ObjectHeader ** children        = getSlots(cur);
+      ObjectHeader ** children = getSlots(cur);
       for (int i = 0; i < length; i++) {
         ObjectHeader * child = children[i];
         char * child_mark = getMark(child);
