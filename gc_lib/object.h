@@ -3,8 +3,8 @@
 
 typedef struct ObjectHeader ObjectHeader;
 struct ObjectHeader {
+  unsigned int   old              : 1;     // Must be bit 0
   unsigned int   some_header_bits : 31;
-  unsigned int   old              : 1;
   size_t         length;
   ObjectHeader * attrib;
 };

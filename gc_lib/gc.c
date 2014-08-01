@@ -49,11 +49,14 @@ int getMaxObjectLength(ArenaHeader * arena) {
   return objectSizeToLength(arena->object_size);
 }
 
+#define barrier() __asm__ __volatile__("": : :"memory")
 
-void setGen(ObjectHeader * o, int gen) {
-  if (o->old != gen) {
-    o->old = gen;
-  }
+void __always_inline setOldBit(ObjectHeader * o) {
+   barrier();
+  __asm("lock bts $0, %0;" :"+m" (*o));
+}
+void clearOldBit(ObjectHeader * o) {
+  __asm("btr $0, %0;" :"+m" (*o));
 }
 
 #ifdef DEBUG
@@ -179,7 +182,7 @@ ObjectHeader * alloc(size_t length) {
     fatalError("Out of memory");
   }
 
-  setGen(o, 0);
+  clearOldBit(o);
   o->length = length;
 
   ObjectHeader ** s = getSlots(o);
@@ -209,6 +212,7 @@ void gcMark(ObjectHeader * root) {
 
   while(!markStackEmpty()) {
     ObjectHeader * cur = markStackPop();
+    setOldBit(cur);
     char * mark         = getMark(cur);
 #ifdef DEBUG
     ObjectHeader ** child = getSlots(cur);
@@ -231,7 +235,6 @@ void gcMark(ObjectHeader * root) {
         }
         child++;
       }
-      setGen(cur, 1);
       *mark = BLACK_MARK;
     }
   }
@@ -244,8 +247,8 @@ void writeBarrier(ObjectHeader * parent, ObjectHeader * child) {
     char * p_mark = getMark(parent);
     if (*p_mark != GREY_MARK) {
       *p_mark = GREY_MARK;
-      markStackPush(parent);
     }
+    markStackPush(parent);
   }
 }
 
