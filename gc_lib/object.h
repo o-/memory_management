@@ -17,7 +17,13 @@ inline ObjectHeader * getSlot(ObjectHeader * o, int i) {
   return getSlots(o)[i];
 }
 
-void writeBarrier(ObjectHeader * o, ObjectHeader * c);
+void deferredWriteBarrier(ObjectHeader * parent, ObjectHeader * child);
+inline void writeBarrier(ObjectHeader * parent, ObjectHeader * child) {
+  if (parent->old > child->old) {
+    deferredWriteBarrier(parent, child);
+  }
+}
+
 inline void setSlot(ObjectHeader * o, int i, ObjectHeader * c) {
   getSlots(o)[i] = c;
   writeBarrier(o, c);

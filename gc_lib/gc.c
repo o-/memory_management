@@ -49,11 +49,8 @@ int getMaxObjectLength(ArenaHeader * arena) {
   return objectSizeToLength(arena->object_size);
 }
 
-#define barrier() __asm__ __volatile__("": : :"memory")
-
 void __always_inline setOldBit(ObjectHeader * o) {
-   barrier();
-  __asm("lock bts $0, %0;" :"+m" (*o));
+  __asm("bts $0, %0;" :"+m" (*o));
 }
 void clearOldBit(ObjectHeader * o) {
   __asm("btr $0, %0;" :"+m" (*o));
@@ -212,7 +209,6 @@ void gcMark(ObjectHeader * root) {
 
   while(!markStackEmpty()) {
     ObjectHeader * cur = markStackPop();
-    setOldBit(cur);
     char * mark         = getMark(cur);
 #ifdef DEBUG
     ObjectHeader ** child = getSlots(cur);
@@ -225,6 +221,7 @@ void gcMark(ObjectHeader * root) {
     }
 #endif
     if (*mark != BLACK_MARK) {
+      setOldBit(cur);
       long length           = cur->length;
       ObjectHeader ** child = getSlots(cur);
       for (int i = 0; i < length; i++) {
@@ -242,15 +239,15 @@ void gcMark(ObjectHeader * root) {
   resetMarkStack();
 }
 
-void writeBarrier(ObjectHeader * parent, ObjectHeader * child) {
-  if (parent->old > child->old) {
-    char * p_mark = getMark(parent);
-    if (*p_mark != GREY_MARK) {
-      *p_mark = GREY_MARK;
-    }
+void deferredWriteBarrier(ObjectHeader * parent, ObjectHeader * child) {
+  char * p_mark = getMark(parent);
+  if (*p_mark == BLACK_MARK) {
+    *p_mark = GREY_MARK;
     markStackPush(parent);
   }
 }
+
+extern inline void writeBarrier(ObjectHeader * parent, ObjectHeader * child);
 
 void nextObject(ObjectHeader ** o, ArenaHeader * arena) {
   *o = (ObjectHeader*)(((char*)(*o)) + arena->object_size);

@@ -13,8 +13,6 @@ typedef struct ArenaHeader ArenaHeader;
 
 ObjectHeader * alloc(size_t length);
 
-void writeBarrier(ObjectHeader * parent, ObjectHeader * child);
-
 int getNumberOfMarkBits(ArenaHeader * arena);
 void inspectArena(ArenaHeader * arena);
 void printMemoryStatistics();
