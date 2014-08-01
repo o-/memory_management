@@ -1,11 +1,11 @@
 #!/bin/bash
 
 echo "* debug"
-gcc -lm -std=gnu99 -Wall -g3 -DDEBUG -UDEBUG_PRINT -o bin/t_debug *.c  && time ./bin/t_debug
+gcc -lm -pthread -std=gnu99 -Wall -g3 -DDEBUG -UDEBUG_PRINT -o bin/t_debug *.c  && time ./bin/t_debug
 
 echo
 echo "* fast"
-gcc -lm -std=gnu99 -Wall -g -O2 -UDEBUG -o bin/t *.c && time ./bin/t
+gcc -lm -pthread -std=gnu99 -Wall -g -O2 -UDEBUG -o bin/t *.c && time ./bin/t
 
 echo
 echo "* boehm"
@@ -13,4 +13,4 @@ gcc -lgc -std=gnu99 -Wall -g -O2 -DBOEHM_GC -DDEBUG -o bin/t_boehm test.c && tim
 
 echo
 echo "* heap verify"
-gcc -lm -std=gnu99 -Wall -g -O2 -DVERIFY_HEAP -DDEBUG -o bin/t_verify *.c && time ./bin/t_verify
+gcc -lm -pthread -std=gnu99 -Wall -g -O2 -DVERIFY_HEAP -DDEBUG -o bin/t_verify *.c && time ./bin/t_verify

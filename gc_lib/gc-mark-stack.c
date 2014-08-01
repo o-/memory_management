@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <pthread.h>
 
 #include "gc-mark-stack.h"
 #include "gc-declarations.h"
@@ -53,8 +54,10 @@ StackChunk * allocStackChunk() {
   return stack;
 }
 
+pthread_mutex_t stack_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 void stackPush(StackChunk ** stack_, ObjectHeader * o) {
+  pthread_mutex_lock(&stack_mutex);
   StackChunk * stack = *stack_;
   if (stack->top == StackChunkSize) {
     *stack_ = allocStackChunk();
@@ -62,9 +65,11 @@ void stackPush(StackChunk ** stack_, ObjectHeader * o) {
     stack = *stack_;
   }
   stack->entry[stack->top++] = o;
+  pthread_mutex_unlock(&stack_mutex);
 }
 
 ObjectHeader * stackPop(StackChunk ** stack_) {
+  pthread_mutex_lock(&stack_mutex);
   StackChunk * stack = *stack_;
   if (stack->top == 0) {
     if (stack->prev == NULL) {
@@ -72,7 +77,9 @@ ObjectHeader * stackPop(StackChunk ** stack_) {
     }
     stack = *stack_ = stack->prev;
   }
-  return stack->entry[--stack->top];
+  ObjectHeader * res = stack->entry[--stack->top];
+  pthread_mutex_unlock(&stack_mutex);
+  return res;
 }
 
 void markStackPush(ObjectHeader * o) {

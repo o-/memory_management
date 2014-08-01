@@ -9,9 +9,9 @@
 const float heapGrowFactor                = 1.4;
 const float heapShrinkFactor              = 1.2;
 
-const int   fullGcInterval                = 10;
+const int   fullGcInterval                = 5;
 
-const int   releaseVariableArenasInterval = 5;
+const int   releaseVariableArenasInterval = 4;
 
 const float arenaFullPercentage           = 0.95;
 /* end */
