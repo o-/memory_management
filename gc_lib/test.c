@@ -50,9 +50,9 @@ void allocTree(int depth,
     // Create large vectors once in a while
     length = 1 + rand() % 100000;
   } else if (rand()%10000 == 1) {
-    length = 1 + rand() % 1000;
+    length = 1 + rand() % 800;
   } else {
-    length = 1 + rand() % 57;
+    length = 1 + rand() % 60;
   }
 
   ObjectHeader * o = alloc(length);
@@ -64,9 +64,9 @@ void allocTree(int depth,
 
   for (int i = 1; i < length; i++) {
     if (rand() % 20 > 5) {
-      alloc(length);
+      alloc(rand()%100);
     }
-    if (rand() % 20 > 6) {
+    if (rand() % 20 > 10) {
       allocTree(depth - 1, o, i, round);
     }
   }
@@ -91,7 +91,7 @@ int main(){
   srand(90);
 
   int rounds = 10;
-  int depth  = 5;
+  int depth  = 6;
 
   Root  = alloc(rounds);
   for (int i = 0; i < rounds; i++) {

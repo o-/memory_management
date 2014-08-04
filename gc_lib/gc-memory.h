@@ -65,6 +65,17 @@ inline void clearAllMarks(ArenaHeader * arena) {
   arena->was_full = 0;
 }
 
+void deferredWriteBarrier(ObjectHeader * parent, ObjectHeader * child,
+                          char * p_mark, char * c_mark);
+inline void writeBarrier(ObjectHeader * parent, ObjectHeader * child) {
+  barrier();
+  char * p_mark = getMark(parent);
+  char * c_mark = getMark(child);
+  if (*p_mark != WHITE_MARK && *c_mark == WHITE_MARK) {
+    deferredWriteBarrier(parent, child, p_mark, c_mark);
+  }
+}
+
 void buildGcSegmentSizeLookupTable();
 
 #define __GC_SEGMENT_SIZE_LOOKUP_TABLE_SIZE \

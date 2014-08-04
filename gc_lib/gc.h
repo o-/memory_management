@@ -19,4 +19,7 @@ void printMemoryStatistics();
 
 void initGc();
 void teardownGc();
+
+void setSlot(ObjectHeader * o, int i, ObjectHeader * c);
+
 #endif

@@ -3,6 +3,8 @@
 
 #include "gc.h"
 
+#define barrier() __asm__ __volatile__("": : :"memory")
+
 int heapSegmentNodeSize(int segment);
 int objectSizeToLength(int size);
 int objectLengthToSize(int length);

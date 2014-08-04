@@ -11,7 +11,7 @@ const float heapShrinkFactor              = 1.2;
 
 const int   fullGcInterval                = 5;
 
-const int   releaseVariableArenasInterval = 4;
+const int   releaseVariableArenasInterval = 2;
 
 const float arenaFullPercentage           = 0.95;
 /* end */
@@ -19,15 +19,12 @@ const float arenaFullPercentage           = 0.95;
 // Initial Values
 const int heapInitNumArena = 4;
 
-static int  doFullGc              = 15;
+static int  doFullGc              = 5;
 static int  releaseVariableArenas = 5;
 
-int isFullGcDue() {
-  int due = doFullGc <= 0;
-  if (due) {
-    doFullGc = fullGcInterval;
-  }
-  return due;
+int isFullGcDue(HeapStruct * heap, int segment) {
+  return ((float)heap->heap_size[segment] /
+          (float)heap->heap_size_limit[segment]) > 0.90;
 }
 
 void growHeap(HeapStruct * heap, int segment) {

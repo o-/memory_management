@@ -5,7 +5,7 @@
 
 extern const int heapInitNumArena;
 
-int  isFullGcDue();
+int  isFullGcDue(HeapStruct * heap, int segment);
 void growHeap(HeapStruct * heap, int segment);
 void tryShrinkHeap(HeapStruct * heap, int segment);
 int  checkReleaseVariableArenas();
