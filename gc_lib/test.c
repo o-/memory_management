@@ -19,6 +19,9 @@ void teardownGc() {}
 #define writeBarrier(a, b) ((void*)0)
 void deferredWriteBarrier(ObjectHeader * a, ObjectHeader * b) {}
 ObjectHeader * Root;
+void setSlot(ObjectHeader * a, int i, ObjectHeader * b) {
+  ((ObjectHeader**)(a+1))[i] = b;
+}
 
 #else
 
@@ -63,10 +66,10 @@ void allocTree(int depth,
   setSlot(o, 0, parent);
 
   for (int i = 1; i < length; i++) {
-    if (rand() % 20 > 5) {
+    if (rand() % 20 > 1) {
       alloc(rand()%100);
     }
-    if (rand() % 20 > 10) {
+    if (rand() % 20 > 11) {
       allocTree(depth - 1, o, i, round);
     }
   }
@@ -90,7 +93,7 @@ int main(){
 
   srand(90);
 
-  int rounds = 10;
+  int rounds = 5;
   int depth  = 6;
 
   Root  = alloc(rounds);

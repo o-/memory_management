@@ -9,28 +9,31 @@
 const float heapGrowFactor                = 1.4;
 const float heapShrinkFactor              = 1.2;
 
-const int   fullGcInterval                = 5;
-
 const int   releaseVariableArenasInterval = 2;
 
 const float arenaFullPercentage           = 0.95;
+
+const int fullGcInterval = 4;
 /* end */
 
 // Initial Values
 const int heapInitNumArena = 4;
 
-static int  doFullGc              = 5;
 static int  releaseVariableArenas = 5;
 
+static int fullGcDue = 10;
+
 int isFullGcDue(HeapStruct * heap, int segment) {
-  return ((float)heap->heap_size[segment] /
-          (float)heap->heap_size_limit[segment]) > 0.90;
+  if (fullGcDue-- < 0) {
+    fullGcDue = fullGcInterval;
+  }
+  return fullGcDue == 0;
 }
 
 void growHeap(HeapStruct * heap, int segment) {
-  if (doFullGc > 0) doFullGc--;
+  fullGcDue--;
   int grow = heap->heap_size_limit[segment] * heapGrowFactor + 1;
-  debug("segment %d : raising limit from %d to %d arenas. currently used: %d\n",
+  debug("segment %d : raising limit from %d to %d arenas. used: %d\n",
       segment, heap->heap_size_limit[segment], grow, heap->heap_size[segment]);
   heap->heap_size_limit[segment] = grow;
 }
@@ -38,7 +41,10 @@ void growHeap(HeapStruct * heap, int segment) {
 void tryShrinkHeap(HeapStruct * heap, int segment) {
   int shrink = heap->heap_size[segment] * heapShrinkFactor + 1;
   if (heap->heap_size_limit[segment] > shrink && shrink >= heapInitNumArena) {
-    if (doFullGc > 0) doFullGc--;
+    debug("segment %d : shrinking limit from %d to %d arenas. used: %d\n",
+      segment, heap->heap_size_limit[segment],
+      shrink, heap->heap_size[segment]);
+    fullGcDue--;
     heap->heap_size_limit[segment] = shrink;
   }
 }

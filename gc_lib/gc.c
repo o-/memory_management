@@ -109,7 +109,7 @@ ObjectHeader * allocFromSegment(int segment,
 
   ArenaHeader * arena = Heap.free_arena[segment];
   while (1) {
-    if (arena == NULL && new_arena == 1) {
+    if (arena == NULL && new_arena) {
       arena = newArena(segment);
       if (arena != NULL) {
         Heap.heap_size[segment]++;
@@ -141,11 +141,16 @@ extern inline int getFixedSegmentForLength(int length);
 void doGc();
 void startFullGc();
 
-int fullSweep = 0;
-int skipGc    = 0;
+int fullGcInProgress = 0;
+int fullGcDone = 0;
 
 ObjectHeader * alloc(size_t length) {
   assert(length >= 0);
+
+  if (fullGcDone) {
+    doGc();
+    fullGcDone = 0;
+  }
 
   int segment = getFixedSegmentForLength(length);
   if (segment == -1) {
@@ -165,20 +170,16 @@ ObjectHeader * alloc(size_t length) {
     Heap.heap_size[segment] < Heap.heap_size_limit[segment] : 0;
 
   ObjectHeader * o = allocFromSegment(segment, length, grow);
-  if (o == NULL) {
-    if (skipGc == 0) {
-      doGc();
-      if (isFullGcDue(&Heap, segment)) {
-        startFullGc();
-        skipGc = 1;
-      }
-    }
 
+  if (o == NULL) {
+    doGc();
     o = allocFromSegment(segment, length, 0);
     if (o == NULL && segment < NUM_FIXED_HEAP_SEGMENTS) {
-      skipGc = 0;
       growHeap(&Heap, segment);
       o = allocFromSegment(segment, length, 1);
+      if (isFullGcDue(&Heap, segment)) {
+        startFullGc();
+      }
     }
   }
 
@@ -225,7 +226,8 @@ void collectRoots() {
 static int markThreadPause = 0;
 static int writeBarrierWaiting = 0;
 void gcMark(int concurrent) {
-  while(!markStackEmpty() && (!concurrent || markThreadPause == 0)) {
+  collectRoots();
+  while(!markStackEmpty()) {
     ObjectHeader * cur = markStackPop();
     char * mark         = getMark(cur);
 #ifdef DEBUG
@@ -264,7 +266,7 @@ void gcMark(int concurrent) {
 
 void * gcMarkThread(void * unused) {
   while (1) {
-    if (markThreadPause == 1) {
+    if (markThreadPause) {
       usleep(6);
     }
     if (markStackEmpty()) {
@@ -272,7 +274,10 @@ void * gcMarkThread(void * unused) {
     }
     pthread_mutex_lock(&mark_thread_mutex);
     gcMark(1);
-    skipGc = 0;
+    while (!markThreadPause && fullGcInProgress) {
+      fullGcDone = 1;
+      usleep(0);
+    }
     pthread_mutex_unlock(&mark_thread_mutex);
   }
   return NULL;
@@ -519,7 +524,7 @@ void startFullGc() {
       arena = arena->next;
     }
   }
-  fullSweep = 1;
+  fullGcInProgress = 1;
   resetMarkStack();
   collectRoots();
 
@@ -533,14 +538,14 @@ void doGc() {
 
   static struct timespec a, b, c;
   if (gcReportingEnabled) clock_gettime(CLOCK_REALTIME, &a);
-  collectRoots();
+
   gcMark(0);
 
 #ifdef DEBUG
   verifyHeap();
 #endif
   if (gcReportingEnabled) clock_gettime(CLOCK_REALTIME, &b);
-  gcSweep(fullSweep);
+  gcSweep(fullGcInProgress);
   if (gcReportingEnabled) clock_gettime(CLOCK_REALTIME, &c);
 
 #ifdef DEBUG
@@ -557,7 +562,7 @@ void doGc() {
     }
 #endif
 #endif
-    if (fullSweep) {
+    if (fullGcInProgress) {
 #ifdef DISABLE_CONCURENT_MARKING
       printf("full marking took: %d ms\n", getDiff(a, b));
 #endif
@@ -566,7 +571,7 @@ void doGc() {
     }
   }
 
-  fullSweep = 0;
+  fullGcInProgress = 0;
   resetMarkStack();
   collectRoots();
 

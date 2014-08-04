@@ -12,6 +12,7 @@ struct HeapStruct {
   ArenaHeader * full_arena[NUM_HEAP_SEGMENTS];
   unsigned int heap_size_limit[NUM_FIXED_HEAP_SEGMENTS];
   unsigned int heap_size[NUM_FIXED_HEAP_SEGMENTS];
+  unsigned int heap_size_change[NUM_FIXED_HEAP_SEGMENTS];
 };
 
 #endif
