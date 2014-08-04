@@ -17,8 +17,11 @@ inline ObjectHeader * getSlot(ObjectHeader * o, int i) {
   return getSlots(o)[i];
 }
 
+#define barrier() __asm__ __volatile__("": : :"memory")
+
 void deferredWriteBarrier(ObjectHeader * parent, ObjectHeader * child);
 inline void writeBarrier(ObjectHeader * parent, ObjectHeader * child) {
+  barrier();
   if (parent->old > child->old) {
     deferredWriteBarrier(parent, child);
   }

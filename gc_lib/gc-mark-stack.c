@@ -35,9 +35,13 @@ void * markStackSpaceMalloc(size_t size) {
   return p;
 }
 
+pthread_mutex_t stack_mutex = PTHREAD_MUTEX_INITIALIZER;
+
 void markStackSpaceClear() {
+  pthread_mutex_lock(&stack_mutex);
   GcStackSpace.free  = GcStackSpace.space;
   GcStackSpace.alloc = 0;
+  pthread_mutex_unlock(&stack_mutex);
 }
 
 static StackChunk * MarkStack = NULL;
@@ -53,8 +57,6 @@ StackChunk * allocStackChunk() {
   stack->prev = NULL;
   return stack;
 }
-
-pthread_mutex_t stack_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 void stackPush(StackChunk ** stack_, ObjectHeader * o) {
   pthread_mutex_lock(&stack_mutex);

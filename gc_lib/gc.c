@@ -24,7 +24,7 @@
 ObjectHeader * Nil;
 ObjectHeader * Root;
 
-static int gcReportingEnabled = 0;
+static int gcReportingEnabled = 1;
 
 static HeapStruct Heap;
 
@@ -52,15 +52,13 @@ int getMaxObjectLength(ArenaHeader * arena) {
   return objectSizeToLength(arena->object_size);
 }
 
-#define barrier() __asm__ __volatile__("": : :"memory")
-
-void __always_inline setOldBit(ObjectHeader * o) {
+__always_inline void setOldBit(ObjectHeader * o) {
   barrier();
-  __asm("bts $0, %0;" :"+m" (*o));
+  __asm("lock bts $0, %0;" :"+m" (*o));
 }
-void clearOldBit(ObjectHeader * o) {
-   barrier();
-  __asm("btr $0, %0;" :"+m" (*o));
+__always_inline void clearOldBit(ObjectHeader * o) {
+  barrier();
+  __asm("lock btr $0, %0;" :"+m" (*o));
 }
 
 #ifdef DEBUG
@@ -145,7 +143,11 @@ ObjectHeader * allocFromSegment(int segment,
 
 extern inline int getFixedSegmentForLength(int length);
 
-void doGc(int full_gc);
+void doGc();
+void startFullGc();
+
+int fullSweep = 0;
+int skipGc    = 0;
 
 ObjectHeader * alloc(size_t length) {
   assert(length >= 0);
@@ -169,15 +171,11 @@ ObjectHeader * alloc(size_t length) {
 
   ObjectHeader * o = allocFromSegment(segment, length, grow);
   if (o == NULL) {
-    if (isFullGcDue()) {
-      doGc(1);
-      fullGcDone();
-    } else {
-      doGc(0);
-    }
+    if (skipGc == 0) doGc();
 
     o = allocFromSegment(segment, length, 0);
     if (o == NULL && segment < NUM_FIXED_HEAP_SEGMENTS) {
+      skipGc = 0;
       growHeap(&Heap, segment);
       o = allocFromSegment(segment, length, 1);
     }
@@ -185,6 +183,11 @@ ObjectHeader * alloc(size_t length) {
 
   if (o == NULL) {
     fatalError("Out of memory");
+  }
+
+  if (isFullGcDue()) {
+    startFullGc();
+    skipGc = 1;
   }
 
   clearOldBit(o);
@@ -211,31 +214,38 @@ ObjectHeader * alloc(size_t length) {
 pthread_mutex_t mark_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mark_thread_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-void gcMark(int concurrent) {
+void collectRoots() {
   *getMark(Nil)  = GREY_MARK;
   markStackPush(Nil);
   *getMark(Root) = GREY_MARK;
   markStackPush(Root);
+}
 
-  while(!markStackEmpty()) {
+static int markThreadPause = 0;
+void gcMark(int concurrent) {
+  while(!markStackEmpty() && (!concurrent || markThreadPause == 0)) {
     ObjectHeader * cur = markStackPop();
-    char * mark         = getMark(cur);
+    // Set old bit to ensure write barrier triggers
     if (concurrent) {
-      pthread_mutex_lock(&mark_mutex);
+      barrier();
+      setOldBit(cur);
+      __asm("mfence");
     }
+    char * mark         = getMark(cur);
 #ifdef DEBUG
     ObjectHeader ** child = getSlots(cur);
     assert(*mark != WHITE_MARK);
+    if (concurrent) pthread_mutex_lock(&mark_mutex);
     if (*mark == BLACK_MARK) {
       for (int i = 0; i < cur->length; i++) {
         assert(*getMark(*child) != WHITE_MARK);
         child++;
       }
     }
+    if (concurrent) pthread_mutex_unlock(&mark_mutex);
 #endif
-    // Set old bit to ensure write barrier triggers
-    setOldBit(cur);
     if (*mark != BLACK_MARK) {
+      if (concurrent) pthread_mutex_lock(&mark_mutex);
       long length           = cur->length;
       ObjectHeader ** child = getSlots(cur);
       for (int i = 0; i < length; i++) {
@@ -247,35 +257,36 @@ void gcMark(int concurrent) {
         child++;
       }
       *mark = BLACK_MARK;
-    }
-    if (concurrent) {
-      pthread_mutex_unlock(&mark_mutex);
+      setOldBit(cur);
+      if (concurrent) pthread_mutex_unlock(&mark_mutex);
     }
   }
 }
 
 void * gcMarkThread(void * unused) {
   while (1) {
-    usleep(0);
+    usleep(10);
     pthread_mutex_lock(&mark_thread_mutex);
     gcMark(1);
+    skipGc = 0;
     pthread_mutex_unlock(&mark_thread_mutex);
   }
   return NULL;
 }
 
-void deferredWriteBarrier(ObjectHeader * parent, ObjectHeader * child) {
-  pthread_mutex_lock(&mark_mutex);
-  char * p_mark = getMark(parent);
-  if (*p_mark == BLACK_MARK) {
-    *p_mark = GREY_MARK;
-    markStackPush(parent);
-    clearOldBit(parent);
-  }
-  pthread_mutex_unlock(&mark_mutex);
-}
-
 extern inline void writeBarrier(ObjectHeader * parent, ObjectHeader * child);
+void deferredWriteBarrier(ObjectHeader * parent, ObjectHeader * child) {
+  char * p_mark = getMark(parent);
+  char * c_mark = getMark(child);
+  if (*p_mark != WHITE_MARK && *c_mark == WHITE_MARK) {
+    pthread_mutex_lock(&mark_mutex);
+    if (*p_mark == BLACK_MARK && *c_mark == WHITE_MARK) {
+      *p_mark = GREY_MARK;
+      markStackPush(parent);
+    }
+    pthread_mutex_unlock(&mark_mutex);
+  }
+}
 
 void nextObject(ObjectHeader ** o, ArenaHeader * arena) {
   *o = (ObjectHeader*)(((char*)(*o)) + arena->object_size);
@@ -488,41 +499,66 @@ void verifyHeap() {
   }
 }
 
-void doGc(int full_gc) {
+void startFullGc() {
+  markThreadPause = 1;
   pthread_mutex_lock(&mark_thread_mutex);
 
+  for (int i = 0; i < NUM_HEAP_SEGMENTS; i++) {
+    ArenaHeader * arena = Heap.free_arena[i];
+    while (arena != NULL) {
+      clearAllMarks(arena);
+      arena = arena->next;
+    }
+    arena = Heap.full_arena[i];
+    while (arena != NULL) {
+      clearAllMarks(arena);
+      arena = arena->next;
+    }
+  }
+  fullSweep = 1;
+  resetMarkStack();
+  collectRoots();
+
+  markThreadPause = 0;
+  pthread_mutex_unlock(&mark_thread_mutex);
+}
+
+void doGc() {
+  markThreadPause = 1;
+  pthread_mutex_lock(&mark_thread_mutex);
+
+  static struct timespec a, b, c;
+  if (gcReportingEnabled) clock_gettime(CLOCK_REALTIME, &a);
+  collectRoots();
+  gcMark(0);
+
+#ifdef DEBUG
+  verifyHeap();
+#endif
+  if (gcReportingEnabled) clock_gettime(CLOCK_REALTIME, &b);
+  gcSweep(fullSweep);
+  if (gcReportingEnabled) clock_gettime(CLOCK_REALTIME, &c);
+
 #ifdef DEBUG
   verifyHeap();
 #endif
 
-  if (full_gc) {
-    for (int i = 0; i < NUM_HEAP_SEGMENTS; i++) {
-      ArenaHeader * arena = Heap.free_arena[i];
-      while (arena != NULL) {
-        clearAllMarks(arena);
-        arena = arena->next;
-      }
-      arena = Heap.full_arena[i];
-      while (arena != NULL) {
-        clearAllMarks(arena);
-        arena = arena->next;
-      }
+
+  if (gcReportingEnabled) {
+    if (getDiff(a,b) > 2) {
+      printf("marking took: %d ms\n", getDiff(a, b));
     }
-  } else {
-    static struct timespec a, b, c;
-    if (gcReportingEnabled) clock_gettime(CLOCK_REALTIME, &a);
-    gcMark(0);
-    if (gcReportingEnabled) clock_gettime(CLOCK_REALTIME, &b);
-    gcSweep(full_gc);
-    if (gcReportingEnabled) clock_gettime(CLOCK_REALTIME, &c);
+    if (fullSweep) {
+      printf("full sweeping took: %d ms\n", getDiff(b, c));
+      printMemoryStatistics();
+    }
   }
 
-#ifdef DEBUG
-  verifyHeap();
-#endif
-
+  fullSweep = 0;
   resetMarkStack();
+  collectRoots();
 
+  markThreadPause = 0;
   pthread_mutex_unlock(&mark_thread_mutex);
 }
 
@@ -532,7 +568,8 @@ void teardownGc() {
     fatalError("markThread not stopped gracefully");
   }
   pthread_mutex_unlock(&mark_thread_mutex);
-  doGc(1);
+  startFullGc();
+  doGc();
   for (int i = 0; i < NUM_HEAP_SEGMENTS; i++) {
     ArenaHeader * arena = Heap.free_arena[i];
     while (arena != NULL) {

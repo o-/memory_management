@@ -23,11 +23,11 @@ static int  doFullGc              = 15;
 static int  releaseVariableArenas = 5;
 
 int isFullGcDue() {
-  return doFullGc <= 0;
-}
-
-void fullGcDone() {
-  doFullGc = fullGcInterval;
+  int due = doFullGc <= 0;
+  if (due) {
+    doFullGc = fullGcInterval;
+  }
+  return due;
 }
 
 void growHeap(HeapStruct * heap, int segment) {
