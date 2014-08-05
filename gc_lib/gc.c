@@ -837,8 +837,6 @@ unsigned int getDiff(struct timespec a, struct timespec b) {
   }
 }
 
-static int lastFullGcTime     = 0;
-
 void doGc(int full_gc) {
 #ifdef DEBUG
   verifyHeap();
@@ -864,6 +862,9 @@ void doGc(int full_gc) {
   static struct timespec a, b, c;
   if (gcReportingEnabled) clock_gettime(CLOCK_REALTIME, &a);
   gcMark(Root);
+#ifdef DEBUG
+  verifyHeap();
+#endif
   if (gcReportingEnabled) clock_gettime(CLOCK_REALTIME, &b);
   gcSweep(full_gc);
   if (gcReportingEnabled) clock_gettime(CLOCK_REALTIME, &c);
@@ -873,19 +874,7 @@ void doGc(int full_gc) {
 #endif
 
   if (gcReportingEnabled) {
-#ifdef DEBUG
-    int isStale = 3;
-#else
-    int isStale = 8;
-#endif
-    if (full_gc ||
-        (lastFullGcTime != 0 && (getDiff(a, c) * isStale > lastFullGcTime))) {
-      if (full_gc) {
-        printf("* Full GC:\n");
-        lastFullGcTime = getDiff(a, c);
-      } else {
-        printf("* Stale newspace collection:\n");
-      }
+    if (full_gc) {
       printf("marking took: %d ms\n", getDiff(a, b));
       printf("sweeping took: %d ms\n", getDiff(b, c));
       printMemoryStatistics();

@@ -63,9 +63,10 @@ void allocTree(int depth,
   setSlot(o, 0, parent);
 
   for (int i = 1; i < length; i++) {
-    if (rand() % 20 > 5) {
-      alloc(length);
+    if (rand() % 20 > 10) {
+      alloc(rand()%30);
     }
+    alloc(rand()%100);
     if (rand() % 20 > 6) {
       allocTree(depth - 1, o, i, round);
     }
