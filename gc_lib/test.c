@@ -4,25 +4,25 @@
 #include "object.h"
 #include "debugging.h"
 
-#ifdef BOEHM_GC
+#ifndef BOEHM_GC
+#include "gc.h"
+#else
 
 #include <gc.h>
 ObjectHeader * alloc(int len) {
   return GC_MALLOC(sizeof(ObjectHeader) + sizeof(ObjectHeader*) * len);
 }
 #define Nil NULL
+ObjectHeader * Root;
 
 void initGc() {
   GC_INIT();
 }
 void teardownGc() {}
+
 #define writeBarrier(a, b) ((void*)0)
-void deferredWriteBarrier(ObjectHeader * a, ObjectHeader * b) {}
-ObjectHeader * Root;
-
-#else
-
-#include "gc.h"
+#define getSlot(a, i)      (((ObjectHeader**)((a)+1))[(i)])
+#define setSlot(a, i, b)   (getSlot((a), (i)) = (b))
 
 #endif
 
