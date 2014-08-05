@@ -701,18 +701,21 @@ void gcMark(ObjectHeader * root) {
 
 void sweepArena(ArenaHeader * arena) {
   arena->free_list = NULL;
-  arena->num_alloc = 0;
+  int num_alloc = 0;
   float bump_space = (float)((uintptr_t)getArenaEnd(arena) -
                              (uintptr_t)arena->free) /
                      (float)((uintptr_t)getArenaEnd(arena) -
                              (uintptr_t)arena->first);
+  // Do not create freelist for an almost empty area.
+  int create_freelist = bump_space < 0.75;
 
   FreeObject * free_list    = NULL;
   char * mark               = getBytemap(arena);
   ObjectHeader * finger     = arena->first;
   ObjectHeader * last_black = finger;
+  uintptr_t             end = (uintptr_t)arena->free;
 
-  while ((uintptr_t)finger < (uintptr_t)arena->free) {
+  while ((uintptr_t)finger < end) {
     assert(getMark(finger) == mark);
     assert((void*)mark < arena->first);
     assert((void*)mark >= (void*)(arena+1));
@@ -727,8 +730,7 @@ void sweepArena(ArenaHeader * arena) {
         s[i] = kGcZapPointer;
       }
 #endif
-      // Do not create freelist for an almost empty area.
-      if (bump_space < 0.75) {
+      if (create_freelist) {
         FreeObject * f = (FreeObject*)finger;
         if (free_list == NULL) {
           free_list = f;
@@ -741,11 +743,12 @@ void sweepArena(ArenaHeader * arena) {
     } else {
       assert(*mark == BLACK_MARK);
       last_black = finger;
-      arena->num_alloc++;
+      num_alloc++;
     }
     nextObject(&finger, arena);
     mark++;
   }
+  arena->num_alloc = num_alloc;
   if (free_list != NULL) {
     free_list->next = NULL;
   }
