@@ -888,7 +888,7 @@ void gcTeardown() {
 #define _VERIFY_CHILD(child, parent) \
   _verifyChild(child, parent)
 
-void _verifyChild(TestObject * child, TestObject * parent) {
+void _verifyChild(ObjectHeader * child, ObjectHeader * parent) {
 #ifdef VERIFY_HEAP
   assert(child != kGcZapPointer);
   ArenaHeader * child_arena = chunkFromPtr(child);
