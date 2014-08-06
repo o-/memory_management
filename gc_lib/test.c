@@ -4,29 +4,56 @@
 #include "object.h"
 #include "debugging.h"
 
+static TestObject * Nil;
+static TestObject * Root;
+
 #ifndef BOEHM_GC
+
 #include "gc.h"
+
+TestObject * _alloc(int size) {
+  return gcAlloc(size);
+}
+
+void gcMarkWrapper() {
+  gcForward(Root);
+  gcMark();
+}
+
 #else
 
 #include <gc.h>
-ObjectHeader * alloc(int len) {
-  return GC_MALLOC(sizeof(ObjectHeader) + sizeof(ObjectHeader*) * len);
+TestObject * _alloc(int size) {
+  return GC_MALLOC(size);
 }
-#define Nil NULL
-ObjectHeader * Root;
 
-void initGc() {
+void gcInit() {
   GC_INIT();
 }
-void teardownGc() {}
-
-#define writeBarrier(a, b) ((void*)0)
-#define getSlot(a, i)      (((ObjectHeader**)((a)+1))[(i)])
-#define setSlot(a, i, b)   (getSlot((a), (i)) = (b))
+void gcTeardown() {}
+void gcWriteBarrier(TestObject * a, TestObject * b) {}
 
 #endif
 
-void releaseSomeNodes(ObjectHeader * o) {
+void setSlot(TestObject * parent, int index, TestObject * child) {
+  ((TestObject**)(parent+1))[index] = child;
+  gcWriteBarrier(parent, child);
+}
+
+TestObject * getSlot(TestObject * parent, int index) {
+  return ((TestObject**)(parent+1))[index];
+}
+
+TestObject * alloc(long len) {
+  TestObject * t = _alloc(sizeof(TestObject) + sizeof(TestObject*) * len);
+  for (long i = 0; i < len; i++) {
+    setSlot(t, i, Nil);
+  }
+  t->length = len;
+  return t;
+}
+
+void releaseSomeNodes(TestObject * o) {
   if (o == Nil) return;
   for (int i = 1; i < o->length; i++) {
     if (getSlot(o, i) != Nil && rand()%10 == 1) {
@@ -38,7 +65,7 @@ void releaseSomeNodes(ObjectHeader * o) {
 }
 
 void allocTree(int depth,
-               ObjectHeader * parent,
+               TestObject * parent,
                int child_idx,
                long round) {
   if (depth == 0) {
@@ -55,28 +82,28 @@ void allocTree(int depth,
     length = 1 + rand() % 57;
   }
 
-  ObjectHeader * o = alloc(length);
+  TestObject * o = alloc(length);
   setSlot(parent, child_idx, o);
 
-  o->some_header_bits = round;
+  o->round = round;
   // Keep a backpointer in slot 0
   setSlot(o, 0, parent);
 
   for (int i = 1; i < length; i++) {
+    setSlot(o, i, Nil);
     if (rand() % 20 > 10) {
       alloc(rand()%30);
     }
-    alloc(rand()%100);
     if (rand() % 20 > 6) {
       allocTree(depth - 1, o, i, round);
     }
   }
 }
 
-void verifyTree(ObjectHeader * node, ObjectHeader * parent, long round) {
+void verifyTree(TestObject * node, TestObject * parent, long round) {
   if (node == Nil) return;
 
-  assert(node->some_header_bits == round);
+  assert(node->round == round);
 
   // Check the backpointer is still in place
   assert(getSlot(node, 0) == parent);
@@ -87,9 +114,11 @@ void verifyTree(ObjectHeader * node, ObjectHeader * parent, long round) {
 }
 
 int main(){
-  initGc();
+  gcInit();
 
   srand(90);
+
+  Nil = alloc(0);
 
   int rounds = 10;
   int depth  = 5;
@@ -111,5 +140,5 @@ int main(){
     printf("---------\n");
   }
 
-  teardownGc();
+  gcTeardown();
 }

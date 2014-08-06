@@ -5,14 +5,11 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "debugging.h"
 #include "object.h"
 
-#include "debugging.h"
-
-/* Globals */
-
-extern ObjectHeader * Nil;
-extern ObjectHeader * Root;
+// CHANGEME :
+typedef TestObject ObjectHeader;
 
 /* Fwd-Declarations */
 
@@ -42,14 +39,22 @@ struct ArenaHeader {
 
 /* API */
 
-ObjectHeader * alloc(size_t length);
+ObjectHeader * gcAlloc(size_t length);
 
 int getNumberOfMarkBits(ArenaHeader * arena);
 void inspectArena(ArenaHeader * arena);
 void printMemoryStatistics();
 
-void initGc();
-void teardownGc();
+void gcInit();
+void gcTeardown();
+
+// IMPLEMENT ME :
+void gcMarkWrapper();
+
+void gcForward(ObjectHeader * object);
+void gcMark();
+
+void gcForceRun();
 
 /* Inlined access functions */
 
@@ -100,27 +105,14 @@ inline char * getMark(void * ptr) {
   return bm + idx;
 }
 
-inline ObjectHeader ** getSlots(ObjectHeader * o) {
-  return (ObjectHeader**)(o+1);
-}
-
-inline ObjectHeader * getSlot(ObjectHeader * o, int i) {
-  return getSlots(o)[i];
-}
-
 void deferredWriteBarrier(ObjectHeader * parent,
                           ObjectHeader * child,
                           char * p_mark);
-inline void writeBarrier(ObjectHeader * parent, ObjectHeader * child) {
+inline void gcWriteBarrier(ObjectHeader * parent, ObjectHeader * child) {
   char * p_mark = getMark(parent);
   if (*p_mark == BLACK_MARK) {
     deferredWriteBarrier(parent, child, p_mark);
   }
-}
-
-inline void setSlot(ObjectHeader * o, int i, ObjectHeader * c) {
-  getSlots(o)[i] = c;
-  writeBarrier(o, c);
 }
 
 #endif

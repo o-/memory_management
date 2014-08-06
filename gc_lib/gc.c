@@ -15,7 +15,6 @@
 
 #include "gc.h"
 
-#include "object.h"
 #include "debugging.h"
 #include "stack.h"
 
@@ -24,9 +23,6 @@
  * Globals
  *
  */
-
-ObjectHeader * Nil;
-ObjectHeader * Root;
 
 static int gcReportingEnabled = 1;
 
@@ -37,8 +33,6 @@ static HeapStruct Heap;
  * Heap Constants
  *
  */
-
-#define SLOT_SIZE sizeof(void*)
 
 #define NUM_FIXED_HEAP_SEGMENTS 8
 #define NUM_VARIABLE_HEAP_SEGMENTS 1
@@ -153,20 +147,8 @@ void nextObject(ObjectHeader ** o, ArenaHeader * arena) {
   *o = (ObjectHeader*)(((char*)(*o)) + arena->object_size);
 }
 
-int objectSizeToLength(int size) {
-  return (size - sizeof(ObjectHeader)) / SLOT_SIZE;
-}
-
-int objectLengthToSize(int length) {
-  return (length * SLOT_SIZE) + sizeof(ObjectHeader);
-}
-
 int getObjectSize(ArenaHeader * arena) {
   return arena->object_size;
-}
-
-int getMaxObjectLength(ArenaHeader * arena) {
-  return objectSizeToLength(arena->object_size);
 }
 
 int getNumObjects(ArenaHeader * arena) {
@@ -229,20 +211,17 @@ size_t calcNumOfObjects(ArenaHeader * arena, int total_size, int object_size) {
   return (size_t)num_objects;
 }
 
-#define __GC_SEGMENT_SIZE_LOOKUP_TABLE_SIZE \
-  (LARGEST_FIXED_SEGMENT_SIZE/SLOT_SIZE)
-int __gcSegmentSizeLookupTable[__GC_SEGMENT_SIZE_LOOKUP_TABLE_SIZE];
+int __gcSegmentSizeLookupTable[LARGEST_FIXED_SEGMENT_SIZE];
 
-inline static int getFixedSegmentForLength(int length) {
-  if (length >= __GC_SEGMENT_SIZE_LOOKUP_TABLE_SIZE) return -1;
+int getFixedSegmentForSize(int length) {
+  if (length >= LARGEST_FIXED_SEGMENT_SIZE) return -1;
   return __gcSegmentSizeLookupTable[length];
 }
 
 void buildGcSegmentSizeLookupTable() {
   // Build the lookup tables
   int segment = 0;
-  for (int i = 0; i < __GC_SEGMENT_SIZE_LOOKUP_TABLE_SIZE; i++) {
-    int size = objectLengthToSize(i);
+  for (int size = 0; size < LARGEST_FIXED_SEGMENT_SIZE; size++) {
     if (size <= MAX_FIXED_NODE_SIZE) {
       if (heapSegmentNodeSize(segment) < size) {
         segment++;
@@ -254,7 +233,7 @@ void buildGcSegmentSizeLookupTable() {
       segment  = VARIABLE_LARGE_NODE_SEGMENT;
       assert(size > MAX_FIXED_NODE_SIZE);
     }
-    __gcSegmentSizeLookupTable[i] = segment;
+    __gcSegmentSizeLookupTable[size] = segment;
   }
 }
 
@@ -393,10 +372,8 @@ ArenaHeader * allocateAlignedArena(int segment) {
   return chunk;
 }
 
-ArenaHeader * allocateAlignedChunk(int segment, int length) {
+ArenaHeader * allocateAlignedChunk(int segment, int object_size) {
   assert(segment >= NUM_FIXED_HEAP_SEGMENTS);
-
-  int object_size = objectLengthToSize(length);
 
   int header = sizeof(ArenaHeader) + GC_ARENA_MAX_BYTEMAP_OFFSET +
                arenaStartAlign;
@@ -505,10 +482,7 @@ void sweepingDone(ArenaHeader * arena){
  *
  */
 
-extern inline ObjectHeader ** getSlots(ObjectHeader * o);
-extern inline ObjectHeader * getSlot(ObjectHeader * o, int i);
-extern inline void setSlot(ObjectHeader * o, int i, ObjectHeader * c);
-extern inline void writeBarrier(ObjectHeader * parent, ObjectHeader * child);
+extern inline void gcWriteBarrier(ObjectHeader * parent, ObjectHeader * child);
 
 void deferredWriteBarrier(ObjectHeader * parent,
                           ObjectHeader * child,
@@ -528,7 +502,7 @@ void deferredWriteBarrier(ObjectHeader * parent,
 
 void verifyHeap();
 void doGc(int full);
-extern inline int getFixedSegmentForLength(int length);
+extern inline int getFixedSegmentForSize(int size);
 
 ObjectHeader * allocFromArena(ArenaHeader * arena) {
   ObjectHeader * o = NULL;
@@ -548,10 +522,10 @@ ObjectHeader * allocFromArena(ArenaHeader * arena) {
 }
 
 ObjectHeader * allocFromSegment(int segment,
-                                int length,
+                                int size,
                                 int new_arena) {
   if (segment >= NUM_FIXED_HEAP_SEGMENTS) {
-    ArenaHeader * arena = allocateAlignedChunk(segment, length);
+    ArenaHeader * arena = allocateAlignedChunk(segment, size);
     if (arena == NULL) {
       return NULL;
     }
@@ -576,7 +550,7 @@ ObjectHeader * allocFromSegment(int segment,
     ObjectHeader * o = allocFromArena(arena);
     if (o != NULL) {
       assert(chunkFromPtr(o) == arena);
-      assert(arena->object_size < 2 * objectLengthToSize(length));
+      assert(arena->object_size < 2 * size);
       return o;
     }
 
@@ -592,10 +566,10 @@ ObjectHeader * allocFromSegment(int segment,
   }
 }
 
-ObjectHeader * alloc(size_t length) {
-  assert(length >= 0);
+ObjectHeader * gcAlloc(size_t size) {
+  assert(size >= 0);
 
-  int segment = getFixedSegmentForLength(length);
+  int segment = getFixedSegmentForSize(size);
   if (segment == -1) {
     segment = VARIABLE_LARGE_NODE_SEGMENT;
   }
@@ -603,16 +577,16 @@ ObjectHeader * alloc(size_t length) {
   // Assert the next smaller segment is actually smaller
   assert(segment == 0 ||
          (segment < NUM_FIXED_HEAP_SEGMENTS ?
-          heapSegmentNodeSize(segment-1) < objectLengthToSize(length) :
-          MAX_FIXED_NODE_SIZE            < objectLengthToSize(length)));
+          heapSegmentNodeSize(segment-1) < size :
+          MAX_FIXED_NODE_SIZE            < size));
   // Assert segment is big enough
   assert(segment >= NUM_FIXED_HEAP_SEGMENTS ||
-         (heapSegmentNodeSize(segment) >= objectLengthToSize(length)));
+         (heapSegmentNodeSize(segment) >= size));
 
   int grow = segment < NUM_FIXED_HEAP_SEGMENTS ?
     Heap.heap_size[segment] < Heap.heap_size_limit[segment] : 0;
 
-  ObjectHeader * o = allocFromSegment(segment, length, grow);
+  ObjectHeader * o = allocFromSegment(segment, size, grow);
   if (o == NULL) {
     if (isFullGcDue()) {
       doGc(1);
@@ -621,32 +595,15 @@ ObjectHeader * alloc(size_t length) {
       doGc(0);
     }
 
-    o = allocFromSegment(segment, length, 0);
+    o = allocFromSegment(segment, size, 0);
     if (o == NULL && segment < NUM_FIXED_HEAP_SEGMENTS) {
       growHeap(&Heap, segment);
-      o = allocFromSegment(segment, length, 1);
+      o = allocFromSegment(segment, size, 1);
     }
   }
 
   if (o == NULL) {
     fatalError("Out of memory");
-  }
-
-  o->length = length;
-
-  ObjectHeader ** s = getSlots(o);
-
-  if (length == 0) return o;
-
-  // Initialize all slots to Nil (Duff device)
-  uintptr_t end = (uintptr_t)(s + length);
-  switch(length % 8) {
-    do {
-      case 0: *s++ = Nil; case 7: *s++ = Nil;
-      case 6: *s++ = Nil; case 5: *s++ = Nil;
-      case 4: *s++ = Nil; case 3: *s++ = Nil;
-      case 2: *s++ = Nil; case 1: *s++ = Nil;
-    } while((uintptr_t)s < end);
   }
 
   return o;
@@ -662,42 +619,36 @@ ObjectHeader * alloc(size_t length) {
 static ObjectHeader * kGcZapPointer = ((ObjectHeader*)0xdeadbeef);
 #endif
 
-void gcMark(ObjectHeader * root) {
-  *getMark(Nil)  = GREY_MARK;
-  *getMark(root) = GREY_MARK;
-  markStackPush(Nil);
-  markStackPush(root);
+void gcForward(ObjectHeader * object) {
+  markStackPush(object);
+  *getMark(object) = GREY_MARK;
+}
 
+#define _FORWARD_CHILD_IF_UNMARKED(child, _) \
+  if (child != NULL && *getMark(child) == WHITE_MARK) gcForward(child)
+#define _ASSERT_CHILD_MARKED(child, _) \
+  assert(child == NULL || *getMark(child) != WHITE_MARK)
+
+void gcMark() {
   while(!markStackEmpty()) {
     ObjectHeader * cur = markStackPop();
     char * mark         = getMark(cur);
 #ifdef DEBUG
-    ObjectHeader ** child = getSlots(cur);
     assert(*mark != WHITE_MARK);
     if (*mark == BLACK_MARK) {
-      for (int i = 0; i < cur->length; i++) {
-        assert(*getMark(*child) != WHITE_MARK);
-        child++;
-      }
+      DO_CHILDREN(cur, _ASSERT_CHILD_MARKED, NULL);
     }
 #endif
     if (*mark != BLACK_MARK) {
-      long length           = cur->length;
-      ObjectHeader ** child = getSlots(cur);
-      for (int i = 0; i < length; i++) {
-        char * child_mark = getMark(*child);
-        if (*child_mark == WHITE_MARK) {
-          *child_mark = GREY_MARK;
-          markStackPush(*child);
-        }
-        child++;
-      }
+      DO_CHILDREN(cur, _FORWARD_CHILD_IF_UNMARKED, NULL);
       *mark = BLACK_MARK;
     }
   }
 
   resetMarkStack();
 }
+
+#define _ZAP_CHILD(c, _) c = kGcZapPointer;
 
 void sweepArena(ArenaHeader * arena) {
   arena->free_list = NULL;
@@ -725,10 +676,7 @@ void sweepArena(ArenaHeader * arena) {
 #ifdef DEBUG
       // Zap slots
       ObjectHeader * o  = (ObjectHeader*)finger;
-      ObjectHeader ** s = getSlots(o);
-      for (int i = 0; i < o->length; i++) {
-        s[i] = kGcZapPointer;
-      }
+      DO_CHILDREN(o, _ZAP_CHILD, NULL);
 #endif
       if (create_freelist) {
         FreeObject * f = (FreeObject*)finger;
@@ -840,6 +788,10 @@ unsigned int getDiff(struct timespec a, struct timespec b) {
   }
 }
 
+void gcForceRun() {
+  doGc(1);
+}
+
 void doGc(int full_gc) {
 #ifdef DEBUG
   verifyHeap();
@@ -864,7 +816,7 @@ void doGc(int full_gc) {
 
   static struct timespec a, b, c;
   if (gcReportingEnabled) clock_gettime(CLOCK_REALTIME, &a);
-  gcMark(Root);
+  gcMarkWrapper();
 #ifdef DEBUG
   verifyHeap();
 #endif
@@ -885,7 +837,7 @@ void doGc(int full_gc) {
   }
 }
 
-void initGc() {
+void gcInit() {
   assert(heapInitNumArena > 0);
   for (int i = 0; i < NUM_HEAP_SEGMENTS; i++) {
     Heap.free_arena[i]      = NULL;
@@ -902,11 +854,11 @@ void initGc() {
 
   buildGcSegmentSizeLookupTable();
 
-  Nil = alloc(0);
+//  Nil = gcAlloc(0);
   resetMarkStack();
 }
 
-void teardownGc() {
+void gcTeardown() {
   doGc(1);
   for (int i = 0; i < NUM_HEAP_SEGMENTS; i++) {
     ArenaHeader * arena = Heap.free_arena[i];
@@ -933,6 +885,19 @@ void teardownGc() {
  *
  */
 
+#define _VERIFY_CHILD(child, parent) \
+  _verifyChild(child, parent)
+
+void _verifyChild(TestObject * child, TestObject * parent) {
+#ifdef VERIFY_HEAP
+  assert(child != kGcZapPointer);
+  ArenaHeader * child_arena = chunkFromPtr(child);
+  assert(child_arena->num_alloc > 0);
+  if (*getMark(parent) == BLACK_MARK) assert(*getMark(child) != WHITE_MARK);
+  assert(child->length >= 0);
+#endif
+}
+
 void verifyArena(ArenaHeader * arena) {
 #ifdef VERIFY_HEAP
   ObjectHeader * o    = arena->first;
@@ -942,18 +907,7 @@ void verifyArena(ArenaHeader * arena) {
     assert(getMark(o) == mark);
     if (*mark != WHITE_MARK) {
       assert(o->length >= 0);
-      ObjectHeader ** children = getSlots(o);
-      for (int i = 0; i < o->length; i++) {
-        ObjectHeader * child = children[i];
-        assert(child != kGcZapPointer);
-        ArenaHeader * child_arena = chunkFromPtr(child);
-        assert(child_arena->num_alloc > 0);
-        if (*mark == BLACK_MARK) {
-          assert(*getMark(child) != WHITE_MARK);
-        }
-        assert(child->length >= 0);
-        child++;
-      }
+      DO_CHILDREN(o, _VERIFY_CHILD, o);
     }
     nextObject(&o, arena);
     mark++;
