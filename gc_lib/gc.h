@@ -23,6 +23,7 @@ void fatalError(const char * msg);
 
 struct ArenaHeader {
   unsigned char segment;
+  unsigned char gc_class;
   unsigned char object_bits;
   void *        first;
   unsigned int  num_alloc;
@@ -39,7 +40,7 @@ struct ArenaHeader {
 
 /* API */
 
-ObjectHeader * gcAlloc(size_t length);
+ObjectHeader * gcAlloc(size_t length, int class);
 
 int getNumberOfMarkBits(ArenaHeader * arena);
 void inspectArena(ArenaHeader * arena);
@@ -55,6 +56,8 @@ void gcForward(ObjectHeader * object);
 void gcMark();
 
 void gcForceRun();
+
+void gcEnableReporting();
 
 /* Inlined access functions */
 

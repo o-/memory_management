@@ -12,7 +12,7 @@ static TestObject * Root;
 #include "gc.h"
 
 TestObject * _alloc(int size) {
-  return gcAlloc(size);
+  return gcAlloc(size, 0);
 }
 
 void gcMarkWrapper() {
