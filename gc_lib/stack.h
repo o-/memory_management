@@ -10,40 +10,56 @@ struct StackChunk {
   int top;
 };
 
-int stackEmpty(StackChunk * stack) {
+inline int stackEmpty(StackChunk * stack) {
   return stack->top == 0 && stack->prev == NULL;
 }
 
-StackChunk * allocStackChunk(void * (*allocator)(size_t)) {
+StackChunk * allocStackChunk() {
   assert(sizeof(StackChunk) <= 4016);
-  StackChunk * stack = (*allocator)(sizeof(StackChunk));
+  StackChunk * stack = malloc(sizeof(StackChunk));
   stack->top = 0;
   stack->prev = NULL;
   return stack;
 }
 
 
-void stackPush(StackChunk ** stack_,
-               ObjectHeader * o,
-               void * (*allocator)(size_t)) {
+inline void stackPush(StackChunk ** stack_,
+               ObjectHeader * o) {
   StackChunk * stack = *stack_;
   if (stack->top == StackChunkSize) {
-    *stack_ = allocStackChunk(allocator);
+    *stack_ = allocStackChunk();
     (*stack_)->prev = stack;
     stack = *stack_;
   }
   stack->entry[stack->top++] = o;
 }
 
-ObjectHeader * stackPop(StackChunk ** stack_) {
+inline ObjectHeader * stackPop(StackChunk ** stack_) {
   StackChunk * stack = *stack_;
   if (stack->top == 0) {
     if (stack->prev == NULL) {
       return NULL;
     }
-    stack = *stack_ = stack->prev;
+    *stack_ = stack->prev;
+    free(stack);
+    stack = *stack_;
   }
   return stack->entry[--stack->top];
+}
+
+void stackReset(StackChunk ** stack_) {
+  StackChunk * stack = *stack_;
+  if (stackEmpty(stack)) {
+    return;
+  }
+  StackChunk * prev  = NULL;
+  while(stack->prev != NULL) {
+    prev = stack->prev;
+    free(stack);
+    stack = prev;
+  }
+  stack->top = 0;
+  *stack_ = stack;
 }
 
 #endif

@@ -116,6 +116,8 @@ void verifyTree(TestObject * node, TestObject * parent, long round) {
 int main(){
   gcInit();
 
+//  gcEnableReporting(1);
+
   srand(90);
 
   Nil = alloc(0);
