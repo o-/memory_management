@@ -18,7 +18,27 @@
 #include "debugging.h"
 #include "stack.h"
 
+
 #define USE_POSIX_MEMALIGN
+
+
+/*
+ * Heap Constants
+ *
+ */
+
+#define NUM_FIXED_HEAP_SEGMENTS 12
+#define NUM_VARIABLE_HEAP_SEGMENTS 1
+#define NUM_HEAP_SEGMENTS (NUM_FIXED_HEAP_SEGMENTS + NUM_VARIABLE_HEAP_SEGMENTS)
+#define VARIABLE_LARGE_NODE_SEGMENT NUM_FIXED_HEAP_SEGMENTS
+
+#define NUM_CLASSES 2
+
+#define SMALLEST_SEGMENT_SIZE 32
+#define LARGEST_FIXED_SEGMENT_SIZE \
+  (SMALLEST_SEGMENT_SIZE<<(NUM_FIXED_HEAP_SEGMENTS-1))
+
+#define MAX_FIXED_NODE_SIZE (SMALLEST_SEGMENT_SIZE<<(NUM_FIXED_HEAP_SEGMENTS-1))
 
 
 /*
@@ -44,6 +64,7 @@ static int gcReportingEnabled = 0;
 static HeapStruct   Heap[NUM_CLASSES][NUM_HEAP_SEGMENTS];
 
 static StackChunk * MarkStack;
+
 
 /*
  * Heuristic Constants
@@ -71,11 +92,13 @@ const int gcClassRelation = 20;
  *
  */
 
+const int arenaStartAlign = 16;
+
 extern inline char * getBytemap(ArenaHeader * base);
 extern inline ArenaHeader * chunkFromPtr(void * base);
-extern inline int getFixedBytemapIndex(void * base, ArenaHeader * arena);
+extern inline int getObjectBits(ArenaHeader * arena);
+extern inline int getBytemapIndex(void * base, ArenaHeader * arena);
 extern inline unsigned int arenaHeaderOffset(void * base);
-extern inline uintptr_t getFixedArenaStart(ArenaHeader * arena);
 
 extern inline char * getMark(void * ptr);
 
@@ -120,12 +143,31 @@ int heapSegmentNodeSize(int segment) {
 }
 
 void clearAllMarks(ArenaHeader * arena) {
-  if (arena->segment < NUM_FIXED_HEAP_SEGMENTS) {
-    memset(getBytemap(arena), 0, GC_ARENA_BYTEMAP_SIZE);
-  } else {
-    memset(getBytemap(arena), 0, 1);
-  }
+  memset(getBytemap(arena), 0, arena->num_objects);
   arena->was_full = 0;
+}
+
+size_t calcNumOfObjects(ArenaHeader * arena, int total_size, int object_size) {
+  assert(total_size > 1024);
+
+  // Area:
+  // arena_offset | AreaHeader | bytemap | start_align | object_space | padding
+  //
+  // sizeof(bytemap)      = num_objects
+  // sizeof(object_space) = num_objects * object_size
+
+  int header = sizeof(ArenaHeader) + arenaHeaderOffset(arena) + arenaStartAlign;
+
+  int num_objects = (total_size - header) / (1 + object_size);
+
+  assert(num_objects > 0);
+  assert(total_size >= header + num_objects +
+                       (num_objects * object_size));
+
+  // Ensure The bytemaps have a word aligned size
+  num_objects &= ~(sizeof(void*) - 1);
+
+  return (size_t)num_objects;
 }
 
 int __gcSegmentSizeLookupTable[LARGEST_FIXED_SEGMENT_SIZE+1];
@@ -174,6 +216,27 @@ uint32_t hash(uint32_t a) {
   return a;
 }
 
+void * getRealPageStart(ArenaHeader * arena) {
+  return (void*)((uintptr_t)arena & ~GC_ARENA_ALIGN_MASK);
+}
+
+size_t getRealPageSize(int segment, size_t object_size) {
+  size_t size = 0;
+  if (segment < NUM_FIXED_HEAP_SEGMENTS) {
+    size = GC_ARENA_SIZE;
+  } else {
+    int header = sizeof(ArenaHeader) + GC_ARENA_MAX_OFFSET +
+                 arenaStartAlign + 1;
+    size = object_size + header;
+  }
+  int OSPageAlignment = sysconf(_SC_PAGESIZE);
+  return roundUpMemory(size, OSPageAlignment);
+}
+
+size_t getRealPageSizeFromArena(ArenaHeader * arena) {
+  return getRealPageSize(arena->segment, arena->object_size);
+}
+
 ArenaHeader * allocateAligned(size_t variable_length) {
   assert(1<<GC_ARENA_ALIGN_BITS == GC_ARENA_ALIGNMENT);
   assert(GC_ARENA_ALIGNMENT % sysconf(_SC_PAGESIZE) == 0);
@@ -182,7 +245,9 @@ ArenaHeader * allocateAligned(size_t variable_length) {
 
   int OSPageAlignment = sysconf(_SC_PAGESIZE);
 
-  size_t aligned_length = roundUpMemory(variable_length, OSPageAlignment);
+  assert(variable_length % OSPageAlignment == 0);
+
+  size_t aligned_length = variable_length;
 
   void * commited = NULL;
 
@@ -250,8 +315,7 @@ ArenaHeader * allocateAligned(size_t variable_length) {
   ArenaHeader * arena = (ArenaHeader*) ((uintptr_t)commited +
                                         arenaHeaderOffset(commited));
 
-  arena->raw_size = aligned_length;
-  arena->raw_base = commited;
+  assert(getRealPageStart(arena) == commited);
   return arena;
 }
 
@@ -259,26 +323,34 @@ ArenaHeader * allocateAlignedArena(int class, int segment) {
   ArenaHeader * chunk = NULL;
   assert(segment < NUM_FIXED_HEAP_SEGMENTS);
 
-  chunk = allocateAligned(GC_ARENA_SIZE);
+  chunk = allocateAligned(getRealPageSize(segment, -1));
   if (chunk == NULL) return NULL;
 
   chunk->segment           = segment;
   chunk->gc_class          = class;
-  int num_objects          = GC_ARENA_USABLE_SIZE /
-                             heapSegmentNodeSize(segment);
+  int num_objects          = calcNumOfObjects(chunk,
+                                              GC_ARENA_SIZE,
+                                              heapSegmentNodeSize(segment));
   chunk->num_objects       = num_objects;
 
-  chunk->first             = (void*)getFixedArenaStart(chunk);
+  chunk->first             = &getBytemap(chunk)[num_objects];
+
+  uintptr_t f = (uintptr_t)chunk->first;
+  if (f % arenaStartAlign != 0) {
+    chunk->first = (void*)(f + f % arenaStartAlign);
+  }
 
   chunk->free              = chunk->first;
   chunk->num_alloc         = 0;
   chunk->object_size       = heapSegmentNodeSize(segment);
+  chunk->object_bits       = log2(heapSegmentNodeSize(segment));
 
   chunk->free_list = allocStackChunk();
 
   assert((uintptr_t)((char*)chunk->first +
                      (chunk->num_objects * chunk->object_size)) <=
-         (uintptr_t)((char*)chunk->raw_base + chunk->raw_size));
+         (uintptr_t)((char*)getRealPageStart(chunk) +
+                     getRealPageSizeFromArena(chunk)));
 
   clearAllMarks(chunk);
 
@@ -288,25 +360,28 @@ ArenaHeader * allocateAlignedArena(int class, int segment) {
 ArenaHeader * allocateAlignedChunk(int class, int segment, size_t object_size) {
   assert(segment >= NUM_FIXED_HEAP_SEGMENTS);
 
-  ArenaHeader * arena = allocateAligned(object_size + GC_ARENA_HEADER_SIZE + 1);
+  ArenaHeader * arena = allocateAligned(getRealPageSize(segment, object_size));
   if (arena == NULL) return NULL;
-
 
   arena->num_alloc         = 1;
   arena->segment           = segment;
   arena->gc_class          = class;
   arena->num_objects       = 1;
   arena->object_size       = object_size;
+
+  arena->object_bits       = GC_ARENA_ALIGN_BITS;
+  arena->free_list         = NULL;
   arena->first             = &getBytemap(arena)[1];
   uintptr_t f = (uintptr_t)arena->first;
-  if (f % GC_ARENA_START_ALIGN != 0) {
-    arena->first = (void*)(f + f % GC_ARENA_START_ALIGN);
+  if (f % arenaStartAlign != 0) {
+    arena->first = (void*)(f + f % arenaStartAlign);
   }
   arena->free              = (void*)getArenaEnd(arena);
 
   assert((uintptr_t)((char*)arena->first +
                      (arena->num_objects * arena->object_size)) <=
-         (uintptr_t)((char*)arena->raw_base + arena->raw_size));
+         (uintptr_t)((char*)getRealPageStart(arena) +
+                     getRealPageSizeFromArena(arena)));
   assert(getMark(arena->first) == getBytemap(arena));
 
   clearAllMarks(arena);
@@ -326,9 +401,9 @@ ArenaHeader * newArena(int class, int segment) {
 
 void freeArena(ArenaHeader * arena) {
 #ifdef USE_POSIX_MEMALIGN
-  free(arena->raw_base);
+  free(getRealPageStart(arena));
 #else
-  munmap(arena->raw_base, arena->raw_size);
+  munmap(getRealPageStart(arena), getRealPageSizeFromArena(arena));
 #endif
 }
 
@@ -444,16 +519,6 @@ void updateMaxClass(int full_gc) {
  */
 
 extern inline void gcWriteBarrier(ObjectHeader * parent, ObjectHeader * child);
-
-void deferredWriteBarrier(ObjectHeader * parent,
-                          ObjectHeader * child,
-                          char * p_mark) {
-  char * c_mark = getMark(child);
-  if (*c_mark == WHITE_MARK) {
-    *p_mark = GREY_MARK;
-    stackPush(&MarkStack, parent);
-  }
-}
 
 
 /*
@@ -667,7 +732,7 @@ void sweepArena(ArenaHeader * arena) {
       num_alloc++;
     }
     nextObject(&finger, arena);
-    mark += getObjectSize(arena)/(1<<GC_ARENA_BITS_PER_MARK);
+    mark++;
   }
   arena->num_alloc = num_alloc;
 }
@@ -677,6 +742,69 @@ void removeArena(ArenaHeader * arena) {
     Heap[arena->gc_class][arena->segment].size--;
   }
   freeArena(arena);
+}
+
+// sort by decreasing num_alloc (merge sort)
+ArenaHeader * sortFreeArenas(ArenaHeader * list) {
+  if (list == NULL) {
+      return NULL;
+  }
+
+  int segmentation = 1;
+
+  while (1) {
+    int num_merges = 0;
+
+    ArenaHeader * left = list;
+                  list = NULL;
+    ArenaHeader * tail = NULL;
+
+    while (left != NULL) {
+      num_merges++;
+
+      ArenaHeader * right = left->next;
+      int left_bucket_size = 1;
+
+      while (left_bucket_size < segmentation && right != NULL) {
+        left_bucket_size++;
+        right = right->next;
+      }
+
+      int right_bucket_size = segmentation;
+
+      while (left_bucket_size > 0 ||
+             (right_bucket_size > 0 && right != NULL)) {
+
+        ArenaHeader * next = NULL;
+        if (right_bucket_size == 0 || right == NULL ||
+            (left_bucket_size > 0 &&
+             right->num_alloc < left->num_alloc)) {
+          next = left;
+          left = left->next;
+          left_bucket_size--;
+        } else {
+          next  = right;
+          right = right->next;
+          right_bucket_size--;
+        }
+
+        if (tail != NULL) {
+          tail->next = next;
+        } else {
+          list = next;
+        }
+        tail = next;
+      }
+
+      left = right;
+    }
+    tail->next = NULL;
+
+    if (num_merges <= 1)
+      return list;
+
+    segmentation *= 2;
+  }
 }
 
 void gcSweep(int full_gc, int segment) {
@@ -754,6 +882,11 @@ void gcSweep(int full_gc, int segment) {
         arena = arena->next;
       }
       tryShrinkHeap(class, i);
+
+      // Sort arenas according to num_alloc: this creates more full arenas
+      // (which do not have to be sweeped) since we first try to allocate in
+      // more populated arenas.
+      Heap[class][i].free_arena = sortFreeArenas(Heap[class][i].free_arena);
     }
   }
 }
@@ -917,7 +1050,7 @@ void verifyArena(ArenaHeader * arena) {
       DO_CHILDREN(o, _VERIFY_CHILD, o);
     }
     nextObject(&o, arena);
-    mark += getObjectSize(arena)/(1<<GC_ARENA_BITS_PER_MARK);
+    mark++;
   }
 #endif
 }
@@ -990,7 +1123,7 @@ void printMemoryStatistics() {
       float population     = 0;
       ArenaHeader * arena = Heap[class][i].free_arena;
       while (arena != NULL) {
-        space  += arena->raw_size;
+        space  += getRealPageSizeFromArena(arena);
         usable += getNumObjects(arena) * getObjectSize(arena);
         used   += arena->num_alloc * getObjectSize(arena);
         if (isArenaConsideredFull(arena)) {
@@ -1004,7 +1137,7 @@ void printMemoryStatistics() {
       }
       arena = Heap[class][i].full_arena;
       while (arena != NULL) {
-        space  += arena->raw_size;
+        space  += getRealPageSizeFromArena(arena);
         usable += getNumObjects(arena) * getObjectSize(arena);
         used   += arena->num_alloc * getObjectSize(arena);
         if (isArenaConsideredFull(arena)) {
@@ -1021,6 +1154,7 @@ void printMemoryStatistics() {
             i, free_arenas,
             free_arenas > 0 ? population / (float)free_arenas : 0, full_arenas);
       }
+
     }
     printf("     Reserverd: %lu mb | Usable: %lu mb | Used: %lu mb\n",
         space / 1048576, usable / 1048576, used / 1048576);
@@ -1032,14 +1166,14 @@ void printMemoryStatistics() {
          i++) {
       ArenaHeader * arena = Heap[class][i].free_arena;
       while (arena != NULL) {
-        space  += arena->raw_size;
+        space  += getRealPageSizeFromArena(arena);
         usable += getNumObjects(arena) * getObjectSize(arena);
         used   += arena->num_alloc * getObjectSize(arena);
         arena   = arena->next;
       }
       arena = Heap[class][i].full_arena;
       while (arena != NULL) {
-        space  += arena->raw_size;
+        space  += getRealPageSizeFromArena(arena);
         usable += getNumObjects(arena) * getObjectSize(arena);
         used   += arena->num_alloc * getObjectSize(arena);
         arena   = arena->next;

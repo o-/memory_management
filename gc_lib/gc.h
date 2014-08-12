@@ -19,21 +19,21 @@ typedef struct ArenaHeader ArenaHeader;
 
 void fatalError(const char * msg);
 
+
 /* structs */
 
 struct ArenaHeader {
+  void *        first;
+  unsigned char object_bits;
   unsigned char segment;
   unsigned char gc_class;
-  void *        first;
-  unsigned int  num_alloc;
   size_t        object_size;
   unsigned int  num_objects;
+  unsigned int  num_alloc;
   void *        free;
   StackChunk *  free_list;
+  char          was_full;
   ArenaHeader * next;
-  int           was_full;
-  size_t        raw_size;
-  void *        raw_base;
 };
 
 
@@ -71,40 +71,8 @@ void gcEnableReporting(int i);
 #define GC_ARENA_SIZE       GC_ARENA_ALIGNMENT
 #define GC_ARENA_ALIGN_MASK (GC_ARENA_ALIGNMENT-1)
 
-#define GC_ARENA_START_ALIGN 16
-
-#define GC_ARENA_BITS_PER_MARK 5
-
 #define GC_ARENA_MAX_OFFSET  0x800
 #define GC_ARENA_OFFSET_MASK 0x7f0
-
-#define GC_ARENA_HEADER_SIZE \
-  (sizeof(ArenaHeader) + GC_ARENA_MAX_OFFSET + GC_ARENA_START_ALIGN)
-
-#define GC_ARENA_USABLE_SIZE \
-  ((int)((GC_ARENA_SIZE - GC_ARENA_HEADER_SIZE) / \
-         (1.0 + 1.0 / (double)(1 << GC_ARENA_BITS_PER_MARK))))
-
-#define GC_ARENA_BYTEMAP_SIZE (GC_ARENA_USABLE_SIZE >> GC_ARENA_BITS_PER_MARK)
-
-/*
- * Heap Constants
- *
- */
-
-#define NUM_FIXED_HEAP_SEGMENTS 12
-#define NUM_VARIABLE_HEAP_SEGMENTS 1
-#define NUM_HEAP_SEGMENTS (NUM_FIXED_HEAP_SEGMENTS + NUM_VARIABLE_HEAP_SEGMENTS)
-#define VARIABLE_LARGE_NODE_SEGMENT NUM_FIXED_HEAP_SEGMENTS
-
-#define NUM_CLASSES 2
-
-#define SMALLEST_SEGMENT_SIZE 32
-#define LARGEST_FIXED_SEGMENT_SIZE \
-  (SMALLEST_SEGMENT_SIZE<<(NUM_FIXED_HEAP_SEGMENTS-1))
-
-#define MAX_FIXED_NODE_SIZE (SMALLEST_SEGMENT_SIZE<<(NUM_FIXED_HEAP_SEGMENTS-1))
-
 
 // Use the least significant non-zero bits (mod sizeof(void*)) of the aligned
 // base address as an offset for the beginning of the arena to improve caching.
@@ -126,39 +94,24 @@ inline ArenaHeader * chunkFromPtr(void * base) {
   return (ArenaHeader*) ((uintptr_t)base + arenaHeaderOffset(base));
 }
 
-inline uintptr_t getFixedArenaStart(ArenaHeader * arena) {
-  return (uintptr_t)&getBytemap(arena)[GC_ARENA_BYTEMAP_SIZE];
+inline int getObjectBits(ArenaHeader * arena) {
+  return arena->object_bits;
 }
 
-inline int getFixedBytemapIndex(void * base, ArenaHeader * arena) {
-  return ((uintptr_t)base - getFixedArenaStart(arena)) >>
-           GC_ARENA_BITS_PER_MARK;
+inline int getBytemapIndex(void * base, ArenaHeader * arena) {
+  return ((uintptr_t)base - (uintptr_t)arena->first) >> getObjectBits(arena);
 }
 
 inline char * getMark(void * ptr) {
   ArenaHeader * arena = chunkFromPtr(ptr);
   char *        bm    = getBytemap(arena);
-  int           idx   = getFixedBytemapIndex(ptr, arena);
-  // Variable sized arenas have a bytemapsize of 1, this we get a negative
-  // index, since the base pointer of the one object in the page is where the
-  // bytemap would be in a fixed size arena.
-  assert((arena->segment < NUM_FIXED_HEAP_SEGMENTS &&
-          idx >= 0 && idx < GC_ARENA_BYTEMAP_SIZE) ||
-         (arena->segment >= NUM_FIXED_HEAP_SEGMENTS && idx < 0));
-  if (idx < 0) {
-    return bm;
-  }
-  assert((uintptr_t)arena->first > (uintptr_t)bm + idx);
+  int           idx   = getBytemapIndex(ptr, arena);
   return bm + idx;
 }
 
-void deferredWriteBarrier(ObjectHeader * parent,
-                          ObjectHeader * child,
-                          char * p_mark);
 inline void gcWriteBarrier(ObjectHeader * parent, ObjectHeader * child) {
-  char * p_mark = getMark(parent);
-  if (*p_mark == BLACK_MARK) {
-    deferredWriteBarrier(parent, child, p_mark);
+  if (*getMark(parent) == BLACK_MARK && *getMark(child) == WHITE_MARK) {
+    gcForward(parent);
   }
 }
 
