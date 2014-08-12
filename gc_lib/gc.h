@@ -87,6 +87,24 @@ void gcEnableReporting(int i);
 
 #define GC_ARENA_BYTEMAP_SIZE (GC_ARENA_USABLE_SIZE >> GC_ARENA_BITS_PER_MARK)
 
+/*
+ * Heap Constants
+ *
+ */
+
+#define NUM_FIXED_HEAP_SEGMENTS 12
+#define NUM_VARIABLE_HEAP_SEGMENTS 1
+#define NUM_HEAP_SEGMENTS (NUM_FIXED_HEAP_SEGMENTS + NUM_VARIABLE_HEAP_SEGMENTS)
+#define VARIABLE_LARGE_NODE_SEGMENT NUM_FIXED_HEAP_SEGMENTS
+
+#define NUM_CLASSES 2
+
+#define SMALLEST_SEGMENT_SIZE 32
+#define LARGEST_FIXED_SEGMENT_SIZE \
+  (SMALLEST_SEGMENT_SIZE<<(NUM_FIXED_HEAP_SEGMENTS-1))
+
+#define MAX_FIXED_NODE_SIZE (SMALLEST_SEGMENT_SIZE<<(NUM_FIXED_HEAP_SEGMENTS-1))
+
 
 // Use the least significant non-zero bits (mod sizeof(void*)) of the aligned
 // base address as an offset for the beginning of the arena to improve caching.
@@ -124,6 +142,9 @@ inline char * getMark(void * ptr) {
   // Variable sized arenas have a bytemapsize of 1, this we get a negative
   // index, since the base pointer of the one object in the page is where the
   // bytemap would be in a fixed size arena.
+  assert((arena->segment < NUM_FIXED_HEAP_SEGMENTS &&
+          idx >= 0 && idx < GC_ARENA_BYTEMAP_SIZE) ||
+         (arena->segment >= NUM_FIXED_HEAP_SEGMENTS && idx < 0));
   if (idx < 0) {
     return bm;
   }
