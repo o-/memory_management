@@ -71,15 +71,16 @@ static StackChunk * MarkStack;
  *
  */
 
-const float heapGrowFactor                = 1.4;
-const float heapShrinkFactor              = 1.2;
+const float heapGrowFactor                = 1.25;
+const float heapShrinkFactor              = 1.3;
 
 #define FULL_GC_INTERVAL 100
-#define FULL_GC_GROW_INTERVAL 5
+#define FULL_GC_GROW_INTERVAL 15
 #define RELEASE_VARIABLE_ARENAS_INTERVAL 1
 
 const float arenaFullPercentage           = 0.95;
 const float arenaEmptyPercentage          = 0.05;
+const float createFreelistThreshold       = 0.6;
 
 const int heapInitNumArena = 2;
 const int heapInitNumVarArena = 300;
@@ -529,52 +530,45 @@ extern inline void gcWriteBarrier(ObjectHeader * parent, ObjectHeader * child);
 void verifyHeap();
 void doGc(int full, int segment);
 
-ObjectHeader * allocFromArena(ArenaHeader * arena) {
-  ObjectHeader * o = NULL;
+static inline ObjectHeader * allocFromArena(ArenaHeader * arena) {
+  if (!stackEmpty(arena->free_list)) {
+    ObjectHeader * o = stackPop(&arena->free_list);
+    arena->num_alloc++;
+    return o;
+  }
   if ((uintptr_t)arena->free < getArenaEnd(arena)) {
     // Bump pointer allocation in virgin space
-    o = (ObjectHeader*)arena->free;
+    ObjectHeader * o = (ObjectHeader*)arena->free;
     arena->free = arena->free + getObjectSize(arena);
     arena->num_alloc++;
+    return o;
   }
-  if (!stackEmpty(arena->free_list)) {
-    o = stackPop(&arena->free_list);
-    arena->num_alloc++;
-  }
-  return o;
+  return NULL;
 }
 
-ObjectHeader * allocFromSegment(int class,
-                                int segment,
-                                size_t size,
-                                int new_arena) {
-  if (segment >= NUM_FIXED_HEAP_SEGMENTS) {
-    if (!new_arena) {
-      return NULL;
-    }
+static inline ObjectHeader * tryFastAllocFromSegment(int class,
+                                                     int segment) {
+  ArenaHeader * arena = Heap[class][segment].free_arena;
+  if (arena == NULL) return NULL;
+  return allocFromArena(arena);
+}
 
-    ArenaHeader * arena = allocateAlignedChunk(class, segment, size);
-    if (arena == NULL) {
-      return NULL;
-    }
-
-    Heap[class][segment].size++;
-    ArenaHeader * first = Heap[class][segment].full_arena;
-    arena->next = first;
-    Heap[class][segment].full_arena = arena;
-
-    return arena->first;
-  }
-
+ObjectHeader * allocFromFixedSegment(int class,
+                                     int segment,
+                                     int new_arena) {
+  assert(segment < NUM_FIXED_HEAP_SEGMENTS);
   ArenaHeader * arena = Heap[class][segment].free_arena;
   while (1) {
-    if (arena == NULL && new_arena == 1) {
-      arena = newArena(class, segment);
-      if (arena != NULL) {
-        Heap[class][segment].size++;
+    if (arena == NULL) {
+      if (new_arena == 1) {
+        arena = newArena(class, segment);
+        if (arena != NULL) {
+          Heap[class][segment].size++;
+        }
+      } else {
+        return NULL;
       }
     }
-    if (arena == NULL) return NULL;
 
     assert(arena->gc_class == class);
     assert(arena->segment == segment);
@@ -582,7 +576,6 @@ ObjectHeader * allocFromSegment(int class,
     ObjectHeader * o = allocFromArena(arena);
     if (o != NULL) {
       assert(chunkFromPtr(o) == arena);
-      assert(arena->object_size < 2 * size);
 
       return o;
     }
@@ -597,6 +590,38 @@ ObjectHeader * allocFromSegment(int class,
     Heap[class][segment].free_arena = next;
     arena = next;
   }
+}
+
+ObjectHeader * allocFromVariableSegment(int class,
+                                        int segment,
+                                        size_t size,
+                                        int new_arena) {
+  assert(segment >= NUM_FIXED_HEAP_SEGMENTS);
+
+  if (!new_arena) {
+    return NULL;
+  }
+
+  ArenaHeader * arena = allocateAlignedChunk(class, segment, size);
+  if (arena == NULL) {
+    return NULL;
+  }
+
+  Heap[class][segment].size++;
+  ArenaHeader * first = Heap[class][segment].full_arena;
+  arena->next = first;
+  Heap[class][segment].full_arena = arena;
+
+  return arena->first;
+}
+
+ObjectHeader * allocFromSegment(int class,
+                                int segment,
+                                size_t size,
+                                int grow) {
+  return (segment < NUM_FIXED_HEAP_SEGMENTS) ?
+    allocFromFixedSegment(class, segment, grow) :
+    allocFromVariableSegment(class, segment, size, grow);
 }
 
 ObjectHeader * gcAlloc(size_t size, int class) {
@@ -617,18 +642,25 @@ ObjectHeader * gcAlloc(size_t size, int class) {
   assert(segment >= NUM_FIXED_HEAP_SEGMENTS ||
          (heapSegmentNodeSize(segment) >= size));
 
-  int grow = Heap[class][segment].size < Heap[class][segment].size_limit;
+  ObjectHeader * o = tryFastAllocFromSegment(class, segment);
+  if (o != NULL) {
+    return o;
+  }
 
-  ObjectHeader * o = allocFromSegment(class, segment, size, grow);
+  int grow = Heap[class][segment].size < Heap[class][segment].size_limit;
+  o = allocFromSegment(class, segment, size, grow);
+
   if (o == NULL) {
+    // No free space, do gc
     if (isFullGcDue()) {
       doGc(1, segment);
     } else {
       doGc(0, segment);
     }
+    o = allocFromSegment(class, segment, size, grow);
 
-    o = allocFromSegment(class, segment, size, 0);
     if (o == NULL) {
+      // Still no free space, grow heap
       growHeap(class, segment);
       o = allocFromSegment(class, segment, size, 1);
     }
@@ -700,7 +732,7 @@ void sweepArena(ArenaHeader * arena) {
                        (float)((uintptr_t)getArenaEnd(arena) -
                                (uintptr_t)arena->first);
     // Do not create freelist for an almost empty area.
-    create_freelist = bump_space < 0.75;
+    create_freelist = bump_space < createFreelistThreshold;
   }
   if (create_freelist) {
     stackReset(&arena->free_list);
