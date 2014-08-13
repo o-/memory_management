@@ -23,8 +23,8 @@ void fatalError(const char * msg);
 /* structs */
 
 struct ArenaHeader {
-  void *        first;
   unsigned char object_bits;
+  unsigned int  first_offset;
   unsigned char segment;
   unsigned char gc_class;
   size_t        object_size;
@@ -51,12 +51,12 @@ void gcTeardown();
 // IMPLEMENT ME :
 void gcMarkWrapper();
 
-void gcForward(ObjectHeader * object);
 void gcMark();
 
 int gcCurrentClass();
 
 void gcForceRun();
+void gcForward(ObjectHeader * object);
 
 void gcEnableReporting(int i);
 
@@ -71,12 +71,12 @@ void gcEnableReporting(int i);
 #define GC_ARENA_SIZE       GC_ARENA_ALIGNMENT
 #define GC_ARENA_ALIGN_MASK (GC_ARENA_ALIGNMENT-1)
 
-#define GC_ARENA_MAX_OFFSET  0x800
-#define GC_ARENA_OFFSET_MASK 0x7f0
+#define GC_ARENA_MAX_OFFSET  0x100
+#define GC_ARENA_OFFSET_MASK 0x0f0
 
 // Use the least significant non-zero bits (mod sizeof(void*)) of the aligned
 // base address as an offset for the beginning of the arena to improve caching.
-inline unsigned int arenaHeaderOffset(void * base) {
+unsigned inline int arenaHeaderOffset(void * base) {
   unsigned int offset = (((uintptr_t)base >> GC_ARENA_ALIGN_BITS) &
                         GC_ARENA_OFFSET_MASK);
   assert(GC_ARENA_MAX_OFFSET > GC_ARENA_OFFSET_MASK);
@@ -98,8 +98,12 @@ inline int getObjectBits(ArenaHeader * arena) {
   return arena->object_bits;
 }
 
+inline uintptr_t getArenaFirst(ArenaHeader * arena) {
+  return (uintptr_t)(getBytemap(arena) + arena->first_offset);
+}
+
 inline int getBytemapIndex(void * base, ArenaHeader * arena) {
-  return ((uintptr_t)base - (uintptr_t)arena->first) >> getObjectBits(arena);
+  return (((uintptr_t)base - getArenaFirst(arena)) >> getObjectBits(arena));
 }
 
 inline char * getMark(void * ptr) {
