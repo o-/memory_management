@@ -62,4 +62,21 @@ void stackReset(StackChunk ** stack_) {
   *stack_ = stack;
 }
 
+void stackFree(StackChunk * stack) {
+  while(stack != NULL) {
+    StackChunk * prev = stack->prev;
+    free(stack);
+    stack = prev;
+  }
+}
+
+size_t stackSize(StackChunk * stack) {
+  size_t size = 0;
+  while(stack != NULL) {
+    size += sizeof(StackChunk);
+    stack = stack->prev; 
+  }
+  return size;
+}
+
 #endif

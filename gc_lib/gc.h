@@ -66,24 +66,10 @@ void gcEnableReporting(int i);
 #define GREY_MARK  ((char)1)
 #define BLACK_MARK ((char)2)
 
-#define GC_ARENA_ALIGN_BITS 20
+#define GC_ARENA_ALIGN_BITS 22
 #define GC_ARENA_ALIGNMENT  (1<<GC_ARENA_ALIGN_BITS)
 #define GC_ARENA_SIZE       GC_ARENA_ALIGNMENT
 #define GC_ARENA_ALIGN_MASK (GC_ARENA_ALIGNMENT-1)
-
-#define GC_ARENA_MAX_OFFSET  0x100
-#define GC_ARENA_OFFSET_MASK 0x0f0
-
-// Use the least significant non-zero bits (mod sizeof(void*)) of the aligned
-// base address as an offset for the beginning of the arena to improve caching.
-unsigned inline int arenaHeaderOffset(void * base) {
-  unsigned int offset = (((uintptr_t)base >> GC_ARENA_ALIGN_BITS) &
-                        GC_ARENA_OFFSET_MASK);
-  assert(GC_ARENA_MAX_OFFSET > GC_ARENA_OFFSET_MASK);
-  assert(offset >= 0 && offset < GC_ARENA_MAX_OFFSET);
-  assert(offset % sizeof(void*) == 0);
-  return offset;
-}
 
 inline char * getBytemap(ArenaHeader * base) {
   return (char*)(base + 1);
@@ -91,7 +77,7 @@ inline char * getBytemap(ArenaHeader * base) {
 
 inline ArenaHeader * chunkFromPtr(void * base) {
   base = (ArenaHeader*)(((uintptr_t)base & ~GC_ARENA_ALIGN_MASK));
-  return (ArenaHeader*) ((uintptr_t)base + arenaHeaderOffset(base));
+  return (ArenaHeader*) ((uintptr_t)base);
 }
 
 inline int getObjectBits(ArenaHeader * arena) {
